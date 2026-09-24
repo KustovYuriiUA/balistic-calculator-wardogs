@@ -84,9 +84,13 @@ const {coordToMap,mapToCoord}=require('../dist/maps.js');
     await page.locator('#reset-correction').click();assert.equal(await page.locator('#distance').inputValue(),'2000.00');assert.equal(await page.locator('#hit').inputValue(),'');
     await page.keyboard.press('Control+z');assert.notEqual(await page.locator('#hit').inputValue(),'','Undo restores the correction');
     await page.locator('[data-marker="Я"] circle').click();
-    assert.equal(await page.locator('.target-row').count(),2);
-    assert.equal(await page.locator('[data-map-tool="player"]').getAttribute('aria-pressed'),'true','Clicking own pin arms relocation instead of deleting it');
-    assert.equal(await page.locator('#player').inputValue(),'x20.00, y20.00');
+    assert.equal(await page.locator('.target-row').count(),2,'Removing own position keeps the goals');
+    assert.equal(await page.locator('#player').inputValue(),'','Clicking own pin removes the position');
+    assert.equal(await page.locator('[data-marker="Я"]').count(),0);
+    assert.equal(await page.locator('[data-map-tool="player"]').getAttribute('aria-pressed'),'true','Next click places the position again');
+    assert.match(await page.locator('#toast-text').textContent(),/Позиция убрана/);
+    await page.keyboard.press('Control+z');assert.equal(await page.locator('#player').inputValue(),'x20.00, y20.00','Ctrl+Z restores the position');
+    await page.locator('[data-marker="Я"] circle').click();assert.equal(await page.locator('#player').inputValue(),'');
     await place('x25, y20');
     assert.equal(await page.locator('.target-row').count(),2);
     assert.equal(await page.locator('#distance').inputValue(),'1500.00');
@@ -128,7 +132,7 @@ const {coordToMap,mapToCoord}=require('../dist/maps.js');
     await page.locator('#view-overlay').click();await page.waitForFunction(()=>document.body.classList.contains('view-only'));
     assert.equal(await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isVisible()),true);
     assert.equal(await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isFocusable()),false);
-    assert.deepEqual(errors,[]);console.log('PASS: offline maps, coordinates/grid, map click, zoom, multiple goals, per-goal and chained corrections, pin click to select then remove, Delete/undo, layout-independent hotkeys, map switching, validation and non-focusable view mode.');
+    assert.deepEqual(errors,[]);console.log('PASS: offline maps, coordinates/grid, map click, zoom, multiple goals, per-goal and chained corrections, pin click to select then remove, own pin click removes the position, Delete/undo, layout-independent hotkeys, map switching, validation and non-focusable view mode.');
   }finally{await application.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
 
