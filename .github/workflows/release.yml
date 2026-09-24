@@ -1,0 +1,64 @@
+name: Release
+
+# Every push to master publishes the version from package.json, unless that release already exists.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      publish: ${{ steps.read.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::v$version is already released. Bump \"version\" in package.json to publish a new release."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    needs: version
+    if: needs.version.outputs.publish == 'true'
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - run: node node_modules/electron/install.js
+      - run: pnpm test
+      - run: node scripts/release.cjs
+      - name: Publish release
+        shell: bash
+        run: |
+          gh release create "v$VERSION" \
+            "release/balistic-calculator-wardogs-win-x64.zip" \
+            "release/app-$VERSION.zip" \
+            "release/update.json" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$VERSION" \
+            --notes-file .github/release-notes.md --generate-notes

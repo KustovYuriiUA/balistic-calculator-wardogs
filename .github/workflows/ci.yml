@@ -1,0 +1,18 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [master, dev]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      # Unit tests need no dependencies: calculator, azimuth, updater core, ZIP round trip.
+      - run: node --test tests/*.test.cjs

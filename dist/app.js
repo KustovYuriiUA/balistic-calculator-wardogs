@@ -36,7 +36,17 @@ function calculateShot(player, target, hit, distance, previousAim = target) {
 if (typeof module !== 'undefined') module.exports = {parseCoordinate, calculateShot};
 if (typeof document !== 'undefined') {
   const $ = id => document.getElementById(id);
-  if(window.overlay){document.body.classList.add('desktop');$('window-bar').hidden=false;$('hide-overlay').addEventListener('click',()=>window.overlay.hide());$('quit-overlay').addEventListener('click',()=>window.overlay.quit());$('view-overlay').addEventListener('click',()=>window.overlay.view());window.overlay.onMode(mode=>{const view=mode==='view';document.body.classList.toggle('view-only',view);$('overlay-mode').textContent=view?'Просмотр':'Редактирование';$('overlay-hint').innerHTML=view?'<kbd>Insert</kbd> редактировать':'<kbd>Insert</kbd> или <kbd>Esc</kbd> — в игру';});}
+  if(window.overlay){document.body.classList.add('desktop');$('window-bar').hidden=false;$('hide-overlay').addEventListener('click',()=>window.overlay.hide());$('quit-overlay').addEventListener('click',()=>window.overlay.quit());$('view-overlay').addEventListener('click',()=>window.overlay.view());window.overlay.onMode(mode=>{const view=mode==='view';document.body.classList.toggle('view-only',view);$('overlay-mode').textContent=view?'Просмотр':'Редактирование';$('overlay-hint').innerHTML=view?'<kbd>Insert</kbd> редактировать':'<kbd>Insert</kbd> или <kbd>Esc</kbd> — в игру';});window.overlay.onUpdate?.(showUpdate);$('update-pill').addEventListener('click',()=>{const action=$('update-pill').dataset.action;if(action)window.overlay.update(action);});}
+  // Update pill in the title bar: download progress, restart when ready, link when a full download is needed.
+  let updateNoticeTimer=0;
+  function showUpdate(update){
+    const pill=$('update-pill'),notice=update.manual&&(update.state==='latest'||update.state==='error');
+    $('window-brand').title='Точный бросок '+update.current;clearTimeout(updateNoticeTimer);
+    const view={downloading:[`↓ ${update.version} · ${update.progress||0}%`,'','Загружается обновление'],ready:[`↻ Обновить до ${update.version}`,'restart','Перезапустить с новой версией'],manual:[`↗ Версия ${update.version}`,'open','Новая версия требует полной загрузки — открыть страницу релиза'],checking:update.manual?['Проверка…','','Проверяем обновления']:null,latest:notice?[`✓ ${update.current} актуальна`,'','Установлена последняя версия']:null,error:notice?['Нет связи с GitHub','',update.message||'']:null}[update.state];
+    pill.hidden=!view;if(!view)return;
+    [pill.textContent,pill.dataset.action,pill.title]=view;pill.classList.toggle('ready',update.state==='ready'||update.state==='manual');pill.disabled=!view[1];
+    if(notice)updateNoticeTimer=setTimeout(()=>{pill.hidden=true;},5000);
+  }
   const fields = ['player', 'target', 'hit', 'distance', 'previous-aim'];
   const fmt = n => new Intl.NumberFormat('ru-RU', {maximumFractionDigits:2}).format(Math.abs(n) < .00001 ? 0 : n);
   let last = null;

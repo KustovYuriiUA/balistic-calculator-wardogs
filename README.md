@@ -29,6 +29,7 @@ Unofficial always-on-top Windows overlay for artillery and mortar fire in [WARDO
 - **Undo** (Ctrl+Z) for every change of points. Hotkeys work on any keyboard layout.
 - **Compact layout** for narrow windows: the map on top, the solution and target list below.
 - **Manual calculator** for entering pasted coordinates without the map.
+- **Auto-update** from GitHub Releases: the overlay downloads new versions in the background and restarts into them when you click **↻ Обновить до …**.
 
 | View mode over the game | Compact layout | Manual calculator |
 |---|---|---|
@@ -72,11 +73,23 @@ Clicking a target pin only selects it; it never deletes it. Clicking your own pi
 
 The model assumes a constant angular error and proportional range from the same position. It does not know terrain height or the game's ballistics, so treat each correction as an estimate and confirm it with the next shot.
 
+## Updates
+
+The overlay checks [the latest release](https://github.com/KustovYuriiUA/balistic-calculator-wardogs/releases/latest) 8 seconds after start and then every 6 hours.
+
+1. When a newer version appears, it downloads `app-<version>.zip` (code and maps, about 23 MB) in the background and verifies its size and SHA-256 against `update.json` from the same release.
+2. The title bar shows **↻ Обновить до <version>**. Click it, or use the tray menu, to restart into the new version whenever it suits you. Without a restart the update is used on the next launch.
+3. If the new version fails to start twice, the overlay falls back to the version in the unzipped folder.
+
+Updates are unpacked into `%APPDATA%\basketball-overlay\updates`; the unzipped folder itself is never modified. A release built on a different Electron runtime shows **↗ Версия <version>** instead, which opens the release page for a full download.
+
+Tray menu: **Проверить обновления** checks now; **Обновлять автоматически** turns background checks on or off.
+
 ## Safety and privacy
 
 - The overlay is a regular Electron window with always-on-top and a global Insert hotkey. It does not attach to, read or modify the game process.
-- It makes no network requests. Maps are bundled, and the page's Content Security Policy blocks connections.
-- Presets and the window position are stored locally in `%APPDATA%\basketball-overlay`.
+- The only network traffic is the update check and download, to `api.github.com` and GitHub's release file servers. Turn off **Обновлять автоматически** in the tray menu to stop it. The map page itself is blocked from any connection by its Content Security Policy, and the maps are bundled.
+- Presets, the window position and downloaded updates are stored locally in `%APPDATA%\basketball-overlay`.
 
 ## Build from source
 
@@ -98,10 +111,21 @@ pnpm test
 pnpm package
 ```
 
-`pnpm package` builds a portable folder in `release/`. `node scripts/portable.cjs --maps` builds a single portable EXE with electron-builder. The UI checks in `tests/*-check.cjs` drive the app through Playwright's Electron support. Install `playwright`, or set `PLAYWRIGHT_PATH` to an existing copy, then run a check with `node tests/maps-check.cjs`.
+`pnpm package` builds a portable folder in `release/`. `pnpm release` builds everything a GitHub release needs: `release/balistic-calculator-wardogs-win-x64.zip`, `release/app-<version>.zip` and `release/update.json`. `node scripts/portable.cjs --maps` builds a single portable EXE with electron-builder. The UI checks in `tests/*-check.cjs` drive the app through Playwright's Electron support. Install `playwright`, or set `PLAYWRIGHT_PATH` to an existing copy, then run a check with `node tests/maps-check.cjs`.
 
-Project layout: `desktop/` holds the Electron main process (window, Insert hotkey, tray). `dist/` holds the UI: `index.html`, `app.js` (calculator), `maps.js` (map, targets, presets), `style.css`/`maps.css` and the map images.
+Project layout: `desktop/` holds the Electron main process (`boot.cjs` entry that picks the downloaded update or the bundled app, window, Insert hotkey, tray, `updater.cjs`). `dist/` holds the UI: `index.html`, `app.js` (calculator), `maps.js` (map, targets, presets), `style.css`/`maps.css` and the map images.
 
+## Release flow
+
+Branches: `dev` for work in progress, `master` for released code.
+
+1. Work on `dev` and push. The **CI** workflow runs the unit tests on every push to `dev` and on pull requests.
+2. When ready to ship, bump `"version"` in `package.json` on `dev` (for example `1.0.1`). The updater only offers versions greater than the installed one.
+3. Merge `dev` into `master` (pull request or fast-forward) and push.
+4. The **Release** workflow builds on `windows-latest`: it installs dependencies, runs the tests, runs `pnpm release` and publishes the release `v<version>` with the three files. If a release with that version already exists, the workflow skips publishing, so pushes to `master` without a version bump are safe.
+5. Installed overlays pick the release up within 6 hours, or immediately via **Проверить обновления** in the tray.
+
+`node tests/update-check.cjs` exercises the whole update path against a local fake of the GitHub API: download, checksum, staging, restart into the new version, rejected tampered files.
 ## Credits and license
 
 - Map images and base/zone coordinates come from the public [Wardogs Zone artillery calculator](https://wardogs.zone/calculators/artillery); see [dist/maps/SOURCES.md](dist/maps/SOURCES.md). Game graphics belong to their owners.
