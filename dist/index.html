@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="description" content="Тактический оверлей: азимут, дальность и поправка по месту разрыва на картах Wardogs.">
+  <title>Точный бросок — тактический калькулятор</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1.5 2.5 4.8v6.4c0 5.6 4 10.1 9.5 11.3 5.5-1.2 9.5-5.7 9.5-11.3V4.8z' fill='%23e7b324'/%3E%3Ccircle cx='12' cy='11.6' r='4.3' fill='none' stroke='%23141310' stroke-width='2'/%3E%3Cpath d='M12 4.8v3.4M12 15v3.4M5.2 11.6h3.4M15.4 11.6h3.4' stroke='%23141310' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css"><link rel="stylesheet" href="maps.css"><script src="app.js" defer></script><script src="landmarks-data.js" defer></script><script src="maps.js" defer></script>
+</head>
+<body>
+<div id="window-bar" hidden>
+  <span class="window-brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5 2.5 4.8v6.4c0 5.6 4 10.1 9.5 11.3 5.5-1.2 9.5-5.7 9.5-11.3V4.8z" fill="#e7b324"/><circle cx="12" cy="11.6" r="4.3" fill="none" stroke="#141310" stroke-width="2"/><path d="M12 4.8v3.4M12 15v3.4M5.2 11.6h3.4M15.4 11.6h3.4" stroke="#141310" stroke-width="2"/></svg>Точный бросок</span>
+  <span class="mode-pill" id="overlay-mode">Просмотр</span>
+  <span class="window-shortcut" id="overlay-hint"><kbd>Insert</kbd> редактировать</span>
+  <button id="view-overlay" type="button" title="В игру: окно остаётся видно, клики проходят сквозь него · Esc" aria-label="Режим просмотра"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg></button><button id="hide-overlay" type="button" title="Скрыть окно · Insert вернёт его" aria-label="Скрыть оверлей"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12" stroke="currentColor" stroke-width="2"/></svg></button><button id="quit-overlay" type="button" title="Закрыть приложение" aria-label="Закрыть приложение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2"/></svg></button>
+</div>
+<main>
+  <header class="site-header"><div class="brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5 2.5 4.8v6.4c0 5.6 4 10.1 9.5 11.3 5.5-1.2 9.5-5.7 9.5-11.3V4.8z" fill="#e7b324"/><circle cx="12" cy="11.6" r="4.3" fill="none" stroke="#141310" stroke-width="2"/><path d="M12 4.8v3.4M12 15v3.4M5.2 11.6h3.4M15.4 11.6h3.4" stroke="#141310" stroke-width="2"/></svg><span>Точный бросок</span><span class="brand-tag">Тактический оверлей</span></div><span class="scale">Азимут · Дальность · Поправка</span></header>
+  <nav class="view-tabs" aria-label="Раздел приложения"><button id="maps-tab" type="button" aria-pressed="true">Карта</button><button id="calculator-tab" type="button" aria-pressed="false">Ручной расчёт</button><button id="compact-toggle" type="button" aria-pressed="false" title="Карта сверху, список целей под ней">Компактно</button></nav>
+
+  <section id="map-workspace" aria-label="Карта и цели">
+    <div class="terrain-layout">
+      <div class="map-column">
+        <div class="map-tools-row">
+          <div class="map-tools" role="group" aria-label="Что ставит ЛКМ на карте"><button type="button" data-map-tool="player" aria-pressed="true" title="Моя позиция · G"><i class="tool-icon me" aria-hidden="true"></i>Я<kbd>G</kbd></button><button type="button" data-map-tool="target" aria-pressed="false" title="Добавить цель · T"><i class="tool-icon goal" aria-hidden="true"></i>Цель<kbd>T</kbd></button><button type="button" data-map-tool="hit" aria-pressed="false" title="Разрыв выбранной цели · H или ПКМ по карте"><i class="tool-icon burst" aria-hidden="true"></i>Разрыв<kbd>H</kbd></button></div>
+          <p id="map-brief" class="map-brief" role="status"><b id="brief-step" hidden></b><span id="map-help"></span></p>
+        </div>
+        <div id="terrain-frame" class="hud-frame">
+          <svg id="terrain" viewBox="0 0 1000 1000" role="img" aria-label="Игровая карта. Выбери инструмент и нажми на карту."><image id="terrain-image" width="1000" height="1000" href="maps/kavkazi.webp"/><g id="terrain-grid" pointer-events="none"></g><g id="terrain-landmarks" pointer-events="none"></g><g id="terrain-markers"></g></svg>
+          <output id="cursor-coords" class="map-readout">X — · Y —</output>
+          <div class="map-zoom" role="group" aria-label="Масштаб карты"><button id="fit-region" type="button" title="Базы региона в кадр · F" aria-label="Базы в кадр">Базы</button><button id="reset-map" type="button" title="Вся карта · R" aria-label="Вся карта">Вся</button><button id="zoom-out" type="button" title="Отдалить · −" aria-label="Отдалить карту">−</button><button id="zoom-in" type="button" title="Приблизить · +" aria-label="Приблизить карту">+</button></div>
+        </div>
+        <p id="map-error" class="field-error" role="alert"></p>
+      </div>
+
+      <aside class="target-panel" aria-label="Огневое решение и цели">
+        <div class="match-bar">
+          <label class="select-field"><span>Карта</span><select id="terrain-select"><option value="kavkazi">Kavkazi</option><option value="europe">Europe</option><option value="northamerica">North America</option></select></label>
+          <label class="select-field"><span>Регион</span><select id="region-select"></select></label>
+          <label class="select-field"><span>Зона</span><select id="zone-select"></select></label>
+        </div>
+
+        <section id="fire-solution" class="fire-solution hud-frame" aria-labelledby="fs-title" aria-live="polite">
+          <div class="panel-head"><h2 id="fs-title">Огневое решение</h2><span id="fs-target" class="fs-target">Цель —</span><span id="fs-tag" class="tag" hidden></span></div>
+          <div class="fs-values">
+            <div class="fs-cell"><span class="fs-label">Азимут</span><output id="fs-azimuth">—</output></div>
+            <div class="fs-cell"><span class="fs-label">Дальность</span><output id="fs-range">—</output></div>
+          </div>
+          <p id="fs-meta" class="fs-meta"></p>
+          <div id="map-solution" class="fs-actions"><button id="reset-correction" type="button" class="ghost" hidden title="Вернуться к базовой дальности и прицелу на цель">Сбросить поправку</button><button id="open-correction" type="button" class="ghost">Ручной расчёт ↗</button></div>
+        </section>
+
+        <div class="map-entry">
+          <div class="entry-head"><h2>Моя позиция</h2><p id="map-player-label" class="unset">не задана</p></div>
+          <label for="map-coordinate" id="map-coordinate-label">Вставить координаты → моя позиция</label>
+          <div class="entry-row"><input id="map-coordinate" placeholder="x95.90, y109.42" autocomplete="off" spellcheck="false"><button id="place-coordinate" type="button" class="primary" title="Поставить точку · Enter">↵ Позиция</button></div>
+        </div>
+
+        <h2 class="target-heading">Цели <span id="target-count">0</span><small id="preset-status" title="Отдельное автосохранение для каждой карты, региона со спавнами и центральной зоны">Автосохранение</small></h2>
+        <div id="target-list"></div>
+      </aside>
+    </div>
+    <footer class="statusbar"><span><kbd>ЛКМ</kbd> поставить</span><span><kbd>ПКМ</kbd> разрыв</span><span><kbd>Колесо</kbd> масштаб</span><span><kbd>Тянуть</kbd> сдвиг</span><span><kbd>1–9</kbd> цель</span><span><kbd>Del</kbd> удалить</span><span><kbd>Ctrl+Z</kbd> отменить</span><span class="credit">Карты: wardogs.zone · 1 ед. = 100 м</span></footer>
+  </section>
+
+  <div class="workspace" id="calculator-workspace" hidden>
+    <section class="panel inputs" aria-labelledby="input-title">
+      <div class="section-title"><h2 id="input-title">Данные выстрела</h2><button class="ghost" id="example" type="button">Пример</button></div>
+      <form id="shot-form" novalidate>
+        <p class="step-label"><b>1</b>Позиции</p>
+        <div class="field"><label for="player"><span class="dot player"></span>Моя позиция</label><input id="player" name="player" placeholder="Y102 X88" autocomplete="off" spellcheck="false" aria-describedby="coord-help player-error"><p class="field-error" id="player-error"></p></div>
+        <div class="field"><label for="target"><span class="dot target"></span>Цель</label><input id="target" name="target" placeholder="Y80 X72" autocomplete="off" spellcheck="false" aria-describedby="coord-help target-error"><p class="field-error" id="target-error"></p></div>
+        <button type="button" class="primary" id="calculate-distance">Рассчитать дальность <kbd>Enter</kbd></button>
+        <p id="base-status" class="hint" role="status"></p>
+        <p id="coord-help" class="hint">Вставляй целиком: <b>x95.90, y109.42</b>. С буквами порядок X и Y не важен. Без букв — сначала Y, потом X: <b>102 88</b>.</p>
+        <div class="divider"></div>
+        <p class="step-label"><b>2</b>Пробный выстрел</p>
+        <div class="field"><label for="distance">Дальность выстрела</label><div class="unit-input"><input id="distance" name="distance" inputmode="decimal" placeholder="Рассчитай по двум точкам" aria-describedby="distance-help distance-error"><span>м</span></div><p id="distance-help" class="hint">Подставляется из расстояния до цели. Если в игре выставил другое значение — измени здесь.</p><p class="field-error" id="distance-error"></p></div>
+        <div class="field"><label for="hit"><span class="dot hit"></span>Разрыв — куда упало</label><input id="hit" name="hit" placeholder="Y93 X80" autocomplete="off" spellcheck="false" aria-describedby="coord-help hit-error"><p class="field-error" id="hit-error"></p></div>
+        <details id="aim-details"><summary>Целился не в саму цель?</summary><div class="field"><label for="previous-aim">Прошлая точка прицеливания</label><input id="previous-aim" name="previousAim" placeholder="По умолчанию — точка цели" autocomplete="off" spellcheck="false" aria-describedby="previous-aim-error"><p class="field-error" id="previous-aim-error"></p></div></details>
+        <button type="submit" class="primary">Рассчитать поправку <span aria-hidden="true">↗</span></button>
+        <p id="form-error" class="field-error" role="alert"></p>
+      </form>
+    </section>
+    <section class="results" aria-label="Результат расчёта">
+      <div class="panel result-panel hud-frame" aria-live="polite">
+        <div class="section-title"><h2>Следующий выстрел</h2><span id="status" class="badge">Ждём координаты</span></div>
+        <div id="empty"><div class="empty-mark" aria-hidden="true">⌖</div><h3>Сначала — дальность до цели</h3><p>Укажи свою позицию и цель, нажми Enter. Выстрели с рассчитанной дальностью, затем введи место разрыва для поправки.</p></div>
+        <div id="result" hidden>
+          <div class="readout"><div class="readout-cell"><p class="result-label">Азимут</p><output id="aim-azimuth"></output><small>0° — север · 90° — восток</small></div><div class="readout-cell"><p class="result-label">Дальность</p><output id="distance-value"></output></div></div>
+          <p id="distance-note" class="hint"></p>
+          <div class="aim-line"><div><p class="result-label">Точка прицеливания</p><output id="aim-value"></output></div><button type="button" class="ghost copy" id="copy" aria-label="Скопировать точку прицеливания">Копировать</button></div>
+          <div class="stats"><div><span>До цели</span><strong id="target-distance"></strong></div><div><span>До разрыва</span><strong id="hit-distance"></strong></div><div><span>Коэффициент</span><strong id="coefficient"></strong></div></div>
+        </div>
+      </div>
+      <div class="panel map-panel"><div class="section-title"><h2>Вид сверху</h2><span class="hint">X → · Y ↑</span></div><div class="map"><svg id="map" viewBox="0 0 520 290" role="img" aria-label="Схема выстрела по координатам"><text x="260" y="150" text-anchor="middle" fill="#6b7580" font-size="15">Схема появится после расчёта</text></svg></div><div class="legend"><span><i class="dot player"></i>Я</span><span><i class="dot target"></i>Цель</span><span><i class="dot hit"></i>Разрыв</span><span><i class="dot aim"></i>Прицел</span></div></div>
+      <p class="model-note"><b>Поправка — оценка по одному выстрелу.</b> Расстояние по Пифагору, постоянное угловое отклонение и пропорциональная дальность. Высота и баллистика игры не учитываются — проверяй следующим выстрелом с той же позиции.</p>
+    </section>
+  </div>
+</main>
+<div id="toast" class="toast" role="status" hidden><span id="toast-text"></span><button id="toast-undo" type="button">Вернуть <kbd>Ctrl+Z</kbd></button></div>
+</body></html>

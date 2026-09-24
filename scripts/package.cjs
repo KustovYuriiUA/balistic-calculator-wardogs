@@ -1,0 +1,21 @@
+'use strict';
+const fs=require('node:fs');
+const path=require('node:path');
+const root=path.resolve(__dirname,'..');
+const electron=path.dirname(require('electron'));
+const release=path.join(root,'release');
+const output=path.resolve(release,process.argv[2] || 'Точный бросок');
+if(path.dirname(output)!==release)throw new Error('Укажите имя папки внутри release.');
+fs.mkdirSync(output,{recursive:true});
+fs.cpSync(electron,output,{recursive:true});
+const appDir=path.join(output,'resources','app');
+fs.mkdirSync(appDir,{recursive:true});
+for(const folder of ['desktop','dist'])fs.cpSync(path.join(root,folder),path.join(appDir,folder),{recursive:true});
+const source=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
+fs.writeFileSync(path.join(appDir,'package.json'),JSON.stringify({name:source.name,version:source.version,main:source.main},null,2));
+fs.copyFileSync(path.join(root,'README.ru.md'),path.join(output,'ПРОЧТИ МЕНЯ.txt'));
+const executable=path.join(output,'Точный бросок.exe');
+// Only replace our generated executable when repackaging this exact output folder.
+if(fs.existsSync(executable))fs.unlinkSync(executable);
+fs.renameSync(path.join(output,'electron.exe'),executable);
+console.log(executable);
