@@ -79,7 +79,8 @@ if(typeof document!=='undefined'){
   $('toast-undo').onclick=undo;
 
   function removeTarget(id){remember();const s=state();s.targets=s.targets.filter(t=>t.id!==id);if(s.selected===id)s.selected=s.targets[0]?.id??null;loadSelected();toast(`Цель ${id} удалена`,true);}
-  function markerClick(e,id){e.stopPropagation();if(state().selected!==id)choose(id);}
+  // First click selects a pin, a click on the selected pin removes it (Ctrl+Z brings it back).
+  function markerClick(e,id){e.stopPropagation();if(state().selected===id)removeTarget(id);else choose(id);}
   function resetShots(){const s=state();for(const t of s.targets){t.distance=s.player?range(s.player,t.point).toFixed(2):'';t.hit='';t.previousAim='';t.shots=0;t.origin=originKey(s.player);}}
   function resetCorrection(){const s=state(),t=selected();if(!t?.hit)return;remember();t.hit='';t.previousAim='';t.shots=0;t.distance=s.player?range(s.player,t.point).toFixed(2):'';loadSelected();toast(`Поправка цели ${t.id} сброшена`,true);}
   $('reset-correction').onclick=resetCorrection;
@@ -211,7 +212,7 @@ if(typeof document!=='undefined'){
       if(f?.corrected&&f.aim)line(s.player,f.aim,{stroke:'#c9a7ff','stroke-width':1.5,'stroke-dasharray':'6 5'});
     }
     if(t){const q=coordToMap(t.point);svgEl(markers,'circle',{class:'pin-halo',cx:q.x,cy:q.y,r:17*unit,fill:'none',stroke:'#ffd24a','stroke-width':1,'stroke-opacity':.7,'vector-effect':'non-scaling-stroke','pointer-events':'none'});}
-    for(const target of s.targets){const g=pin(target.point,String(target.id),{stroke:target===t?'#ffd24a':'#fff2dd',id:target.id});g.setAttribute('role','button');g.setAttribute('aria-label','Выбрать цель '+target.id);g.onclick=e=>markerClick(e,target.id);}
+    for(const target of s.targets){const g=pin(target.point,String(target.id),{stroke:target===t?'#ffd24a':'#fff2dd',id:target.id});const hint=target===t?'Удалить цель '+target.id:'Выбрать цель '+target.id;g.setAttribute('role','button');g.setAttribute('aria-label',hint);svgEl(g,'title',{}).textContent=target===t?hint+' · клик ещё раз':hint;g.onclick=e=>markerClick(e,target.id);}
     if(s.player){const g=pin(s.player,'Я',{stroke:'#08090a',fill:'#fff2dd',text:'#141310'});g.setAttribute('role','button');g.setAttribute('aria-label','Переставить мою позицию');g.onclick=e=>{e.stopPropagation();setTool('player');};}
     if(f?.corrected&&f.aim)pin(f.aim,'+',{stroke:'#c9a7ff',glyph:17}).style.pointerEvents='none';
     if(hit)pin(hit,'×',{stroke:'#ff6a3d',glyph:17}).style.pointerEvents='none';

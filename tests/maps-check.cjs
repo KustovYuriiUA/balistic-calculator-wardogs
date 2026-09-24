@@ -69,11 +69,11 @@ const {coordToMap,mapToCoord}=require('../dist/maps.js');
     assert.ok(Math.abs(zoomed.width-diameter.width)<0.1,'SVG pin stays 22 screen pixels across zoom');
     assert.equal(await page.locator('[data-marker="Цель 3"] text').textContent(),'3');
     await page.locator('#reset-map').click();
-    await page.locator('[data-marker="Цель 3"] circle').click();assert.equal(await page.locator('.target-row').count(),3,'Clicking the selected pin never deletes it');
-    await page.keyboard.press('Delete');assert.equal(await page.locator('.target-row').count(),2,'Delete removes the selected goal');
+    await page.locator('[data-marker="Цель 3"] circle').click();assert.equal(await page.locator('.target-row').count(),2,'Clicking the selected pin removes it');
     assert.match(await page.locator('#toast-text').textContent(),/Цель 3 удалена/);
     await page.keyboard.press('Control+z');assert.equal(await page.locator('.target-row').count(),3,'Ctrl+Z restores the goal');
-    await page.keyboard.press('Delete');assert.equal(await page.locator('.target-row').count(),2);
+    await page.locator('.target-select').first().click();await page.locator('[data-marker="Цель 3"] circle').click();assert.equal(await page.locator('.target-row').count(),3,'Clicking another pin only selects it');
+    await page.keyboard.press('Delete');assert.equal(await page.locator('.target-row').count(),2,'Delete removes the selected goal');
     await page.locator('.target-select').first().click();
     const hitBox=await page.locator('#terrain').boundingBox();
     await page.mouse.click(hitBox.x+hitBox.width*30/163.84,hitBox.y+hitBox.height*(1-20/163.84),{button:'right'});
@@ -128,7 +128,7 @@ const {coordToMap,mapToCoord}=require('../dist/maps.js');
     await page.locator('#view-overlay').click();await page.waitForFunction(()=>document.body.classList.contains('view-only'));
     assert.equal(await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isVisible()),true);
     assert.equal(await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isFocusable()),false);
-    assert.deepEqual(errors,[]);console.log('PASS: offline maps, coordinates/grid, map click, zoom, multiple goals, per-goal and chained corrections, Delete/undo, safe pin clicks, layout-independent hotkeys, map switching, validation and non-focusable view mode.');
+    assert.deepEqual(errors,[]);console.log('PASS: offline maps, coordinates/grid, map click, zoom, multiple goals, per-goal and chained corrections, pin click to select then remove, Delete/undo, layout-independent hotkeys, map switching, validation and non-focusable view mode.');
   }finally{await application.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
 

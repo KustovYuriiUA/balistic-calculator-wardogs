@@ -57,11 +57,11 @@ Unofficial always-on-top Windows overlay for artillery and mortar fire in [WARDO
 | Mouse wheel, `+` / `−` | Zoom |
 | `G` / `T` / `H` | Tool: my position / target / impact |
 | `1`–`9` | Select a target |
-| `Delete` | Remove the selected target |
+| Click the selected pin, `Delete` | Remove the selected target |
 | `Ctrl+Z` | Undo |
 | `F` / `R` | Fit the region's bases / show the whole map |
 
-Clicking a target pin only selects it; it never deletes it. Clicking your own pin arms the **Я** tool, so the next click moves your position. The title bar buttons switch to view mode, hide the window (Insert brings it back) or quit. The tray icon offers the same actions.
+Clicking a target pin selects it; clicking the selected pin again removes it (Ctrl+Z brings it back). Clicking your own pin arms the **Я** tool, so the next click moves your position. The title bar buttons switch to view mode, hide the window (Insert brings it back) or quit. The tray icon offers the same actions.
 
 ## How the correction works
 
