@@ -5,40 +5,42 @@ const {readPosition,resolvePosition,savePosition}=require('./window-position.cjs
 const updater=require('./updater.cjs');
 const {createMapLayer}=require('./map-layer.cjs');
 const version=require('../package.json').version;
-let overlay, tray, mapLayer, editing=false;
+let overlay, tray, mapLayer;
 const single = app.requestSingleInstanceLock();
 if (!single) app.quit();
 else {
   app.setAppUserModelId('local.basketball.shot-overlay');
-  // focus=false: clickable without taking the keyboard (marker mode keeps it on the game-map layer).
-  const show = (interactive=true, focus=true) => {
-    if (!overlay || overlay.isDestroyed()) return;
-    if (overlay.isMinimized()) overlay.restore();
-    const bounds = overlay.getBounds();
-    const onScreen = screen.getAllDisplays().some(({workArea:r}) => bounds.x+100>r.x && bounds.x<r.x+r.width && bounds.y+40>r.y && bounds.y<r.y+r.height);
-    if (!onScreen) overlay.center();
-    overlay.setAlwaysOnTop(true, 'screen-saver');
-    editing=interactive;
-    overlay.setIgnoreMouseEvents(!interactive,{forward:true});
-    overlay.setFocusable(interactive);
-    overlay.setOpacity(interactive?1:0.85);
-    if(interactive&&focus){overlay.show();overlay.focus();}else if(interactive)overlay.showInactive();else{overlay.blur();overlay.showInactive();}
-    overlay.webContents.send('overlay:mode',interactive?'edit':'view');
+  // The overlay behaves as an overlay: it never takes the keyboard from the game by itself (a game in the background
+  // mutes its sound, and its keys, M included, would stop working). Its mode follows from three things:
+  //   view     — click-through, dimmed: the game map is closed and marker mode is off;
+  //   edit     — clickable without the keyboard: marker mode is on (Insert), or the game map is open;
+  //   keyboard — focused, for typing: a click into a text field (or the tray); a click on the game ends it.
+  let keyboard=false,mode=null;
+  const gameMapOpen=()=>{const s=mapLayer?.status();return Boolean(s&&(s.open===true||s.calibrated));};
+  const reveal=()=>{
+    if(!overlay||overlay.isDestroyed())return;
+    if(overlay.isMinimized())overlay.restore();
+    const bounds=overlay.getBounds();
+    const onScreen=screen.getAllDisplays().some(({workArea:r})=>bounds.x+100>r.x&&bounds.x<r.x+r.width&&bounds.y+40>r.y&&bounds.y<r.y+r.height);
+    if(!onScreen)overlay.center();
+    overlay.setAlwaysOnTop(true,'screen-saver');
+    if(!overlay.isVisible())overlay.showInactive();
   };
-  // Insert: leave marker mode or window editing first; with the in-game map open it enters marker mode on
-  // the game-map layer (searching the terrain first if the layer is not calibrated yet); otherwise it opens
-  // the overlay window for editing, as before.
-  let toggling=false;
-  const toggle = async () => {
-    if(toggling)return;
-    if(mapLayer?.marking()){mapLayer.setMarking(false);return;}
-    if(overlay?.isVisible()&&editing){show(false);return;}
-    toggling=true;
-    try{if(mapLayer?.hasLayer()&&(mapLayer.canMark()||await mapLayer.acquireNow())&&mapLayer.setMarking(true))return;}
-    finally{toggling=false;}
-    show(true);
+  const apply=()=>{
+    if(!overlay||overlay.isDestroyed())return;
+    const next=keyboard?'keyboard':mapLayer?.marking()||gameMapOpen()?'edit':'view';
+    if(next===mode)return;
+    mode=next;
+    overlay.setIgnoreMouseEvents(mode==='view',{forward:true});
+    overlay.setFocusable(mode==='keyboard');
+    overlay.setOpacity(mode==='view'?0.85:1);
+    if(mode==='keyboard'){reveal();overlay.show();overlay.focus();}
+    overlay.webContents.send('overlay:mode',mode);
   };
-  app.on('second-instance',()=>show(true));
+  const setKeyboard=on=>{keyboard=on;apply();};
+  // Insert: marker mode on or off, nothing else. The window comes back if it was hidden.
+  const toggle=()=>{if(!mapLayer)return;mapLayer.setMarking(!mapLayer.marking());reveal();apply();};
+  app.on('second-instance',()=>setKeyboard(true));
   app.whenReady().then(async()=>{
     const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
     const positionFile=path.join(app.getPath('userData'),'window-position.json');
@@ -81,15 +83,37 @@ else {
     overlay.webContents.setWindowOpenHandler(()=>({action:'deny'}));
     overlay.webContents.on('will-navigate',event=>event.preventDefault());
     ipcMain.on('overlay:hide',event=>{if(event.sender===overlay.webContents)overlay.hide();});
-    ipcMain.on('overlay:view',event=>{if(event.sender===overlay.webContents)show(false);});
-    ipcMain.on('overlay:edit',event=>{if(event.sender===overlay.webContents)show(true);});
+    // view: marker mode off, keyboard back (as far as the window can give it: a click on the game takes it).
+    ipcMain.on('overlay:view',event=>{if(event.sender===overlay.webContents){mapLayer.setMarking(false);setKeyboard(false);}});
+    ipcMain.on('overlay:edit',event=>{if(event.sender===overlay.webContents)setKeyboard(true);});
+    // A click into a text field: the window takes the keyboard (the game goes to the background until clicked).
+    ipcMain.on('overlay:keyboard',event=>{if(event.sender===overlay.webContents)setKeyboard(true);});
+    ipcMain.on('overlay:marking',event=>{if(event.sender===overlay.webContents)toggle();});
+    // The page drags the window (title bar) or one of its edges (w, e, s, sw, se); the window follows the cursor
+    // within its minimum and maximum size. Windows' own drag of the title bar would activate another window (the
+    // desktop) for this one, which cannot take focus, and its own frame does nothing then.
+    let dragging=null;
+    ipcMain.on('overlay:drag',(event,kind,phase)=>{
+      if(event.sender!==overlay.webContents||!['move','w','e','s','sw','se'].includes(kind))return;
+      const p=screen.getCursorScreenPoint();
+      if(phase==='start'){dragging={kind,from:p,bounds:overlay.getBounds()};return;}
+      if(!dragging||dragging.kind!==kind)return;
+      if(phase==='end'){dragging=null;persistPosition();return;}
+      const dx=p.x-dragging.from.x,dy=p.y-dragging.from.y,b=dragging.bounds;
+      if(kind==='move'){overlay.setPosition(b.x+dx,b.y+dy);return;}
+      const [minW,minH]=overlay.getMinimumSize(),[maxW,maxH]=overlay.getMaximumSize(),fit=(v,lo,hi)=>Math.round(Math.max(lo,hi>0?Math.min(hi,v):v));
+      const width=kind==='s'?b.width:fit(kind.endsWith('w')?b.width-dx:b.width+dx,minW,maxW),height=kind==='w'||kind==='e'?b.height:fit(b.height+dy,minH,maxH);
+      overlay.setBounds({x:kind.endsWith('w')?b.x+b.width-width:b.x,y:b.y,width,height});
+    });
+    ipcMain.handle('overlay:paste',async event=>{if(event.sender!==overlay.webContents)throw new Error('Нет доступа');return String(await clipboard.readText()).slice(0,200);});
+    overlay.on('blur',()=>{if(keyboard)setKeyboard(false);});
     ipcMain.on('overlay:quit',event=>{if(event.sender===overlay.webContents)app.quit();});
     ipcMain.on('overlay:update-action',(event,action)=>{if(event.sender===overlay.webContents&&['check','restart','open'].includes(action))updater.action(action);});
     const toOverlay=(channel,value)=>{if(!overlay.isDestroyed())overlay.webContents.send(channel,value);};
-    // Marker mode on the game map: the overlay window stays clickable too (without the keyboard); leaving it
-    // hands both back to the game.
-    let marked=false;
-    mapLayer=createMapLayer({file:path.join(app.getPath('userData'),'map-area.json'),diagnostics:path.join(app.getPath('userData'),'diagnostics'),onStatus:status=>{toOverlay('overlay:game-map',status);if(status.marking!==marked){marked=status.marking;if(marked)show(true,false);else show(false);}},onClick:click=>toOverlay('overlay:game-click',click),onKey:key=>toOverlay('overlay:game-key',key),onNotice:text=>toOverlay('overlay:game-map-notice',text),beforePick:()=>overlay.hide(),afterPick:()=>show(false)});
+    // The game map opening or closing, and marker mode, switch the window between viewing and clicking.
+    const userData=app.getPath('userData');
+    mapLayer=createMapLayer({file:path.join(userData,'map-area.json'),memoryFile:path.join(userData,'game-map-memory.json'),diagnostics:path.join(userData,'diagnostics'),onStatus:status=>{toOverlay('overlay:game-map',status);apply();},onClick:click=>toOverlay('overlay:game-click',click),onNotice:text=>toOverlay('overlay:game-map-notice',text),beforePick:()=>overlay.hide(),afterPick:()=>{reveal();apply();}});
+    app.on('before-quit',()=>mapLayer.flush());
     ipcMain.on('overlay:scene',(event,scene)=>{if(event.sender===overlay.webContents&&scene&&typeof scene==='object'&&JSON.stringify(scene).length<50000)mapLayer.scene(scene);});
     ipcMain.on('overlay:compact',(event,enabled)=>{if(event.sender===overlay.webContents)setCompact(enabled===true);});
     // Compact window: the content height (CSS px × zoom, down to the bottom of the screen) is the window's maximum
@@ -113,23 +137,22 @@ else {
     ipcMain.on('overlay:game-map-select',(event,key)=>{if(event.sender===overlay.webContents&&typeof key==='string'&&key.length<=100)mapLayer.select(key);});
     ipcMain.on('overlay:game-map-settings',(event,settings)=>{if(event.sender===overlay.webContents)mapLayer.settings(settings);});
     ipcMain.on('overlay:game-map-snapshot',event=>{if(event.sender===overlay.webContents)mapLayer.snapshot();});
-    ipcMain.handle('overlay:copy',(event,text)=>{if(event.sender!==overlay.webContents || typeof text!=='string' || !/^Y-?\d+(?:\.\d+)? X-?\d+(?:\.\d+)?$/.test(text) || text.length>100)throw new Error('Некорректные координаты');clipboard.writeText(text);return true;});
-    overlay.webContents.on('before-input-event',(event,input)=>{if(input.key==='Escape'&&input.type==='keyDown'){event.preventDefault();if(mapLayer?.marking())mapLayer.setMarking(false);show(false);}});
+    ipcMain.handle('overlay:copy',async(event,text)=>{if(event.sender!==overlay.webContents || typeof text!=='string' || !/^Y-?\d+(?:\.\d+)? X-?\d+(?:\.\d+)?$/.test(text) || text.length>100)throw new Error('Некорректные координаты');await clipboard.writeText(text);return true;});
     tray = new Tray(icon);
-    tray.setToolTip(`Точный бросок ${version} · Insert — редактирование / игра`);
+    tray.setToolTip(`Точный бросок ${version} · Insert — метки на карте игры`);
     const trayMenu=update=>{
       const updateItems=update.state==='ready'?[{label:`Обновить до ${update.version} и перезапустить`,click:()=>updater.action('restart')}]:update.state==='manual'?[{label:`Скачать версию ${update.version}…`,click:()=>updater.action('open')}]:[];
-      tray.setContextMenu(Menu.buildFromTemplate([{label:'Редактировать (Insert)',click:()=>show(true)},{label:'Просмотр поверх игры',click:()=>show(false)},{label:'Скрыть',click:()=>overlay.hide()},{type:'separator'},{label:'Выбрать область карты игры…',click:()=>mapLayer.pick()},{label:'Снимок карты игры для отладки',click:()=>mapLayer.snapshot()},{type:'separator'},{label:`Версия ${version}`,enabled:false},...updateItems,{label:'Проверить обновления',enabled:update.enabled&&update.state!=='checking'&&update.state!=='downloading',click:()=>{updater.action('check');show(true);}},{label:'Обновлять автоматически',type:'checkbox',checked:update.auto,enabled:update.enabled,click:()=>updater.action('toggle-auto')},{type:'separator'},{label:'Выход',click:()=>app.quit()}]));
+      tray.setContextMenu(Menu.buildFromTemplate([{label:'Метки на карте игры (Insert)',click:toggle},{label:'Окно с клавиатурой',click:()=>setKeyboard(true)},{label:'Скрыть',click:()=>overlay.hide()},{type:'separator'},{label:'Выбрать область карты игры…',click:()=>mapLayer.pick()},{label:'Снимок карты игры для отладки',click:()=>mapLayer.snapshot()},{type:'separator'},{label:`Версия ${version}`,enabled:false},...updateItems,{label:'Проверить обновления',enabled:update.enabled&&update.state!=='checking'&&update.state!=='downloading',click:()=>{updater.action('check');reveal();}},{label:'Обновлять автоматически',type:'checkbox',checked:update.auto,enabled:update.enabled,click:()=>updater.action('toggle-auto')},{type:'separator'},{label:'Выход',click:()=>app.quit()}]));
     };
     updater.start({version,userData:app.getPath('userData'),enabled:app.isPackaged||Boolean(process.env.SHOT_UPDATE_FEED),onChange:update=>{trayMenu(update);if(!overlay.isDestroyed())overlay.webContents.send('overlay:update',update);}});
-    overlay.webContents.on('did-finish-load',()=>{overlay.webContents.send('overlay:update',updater.current());overlay.webContents.send('overlay:game-map',mapLayer.status());});
+    overlay.webContents.on('did-finish-load',()=>{overlay.webContents.send('overlay:update',updater.current());overlay.webContents.send('overlay:game-map',mapLayer.status());overlay.webContents.send('overlay:mode',mode||'view');});
     tray.on('double-click',toggle);
     const registered=globalShortcut.register('Insert',toggle);
     await overlay.loadFile(path.join(__dirname,'../dist/index.html'));
     mapLayer.start();
     updater.confirm();
-    show(false);
-    if (!registered) dialog.showMessageBox(overlay,{type:'warning',title:'Insert занят',message:'Не удалось назначить Insert.',detail:'Клавиша занята другим приложением. Освободи её и перезапусти калькулятор. Пока можно открывать окно двойным щелчком по значку в трее.'});
+    apply();reveal();
+    if (!registered) dialog.showMessageBox(overlay,{type:'warning',title:'Insert занят',message:'Не удалось назначить Insert.',detail:'Клавиша занята другим приложением. Освободи её и перезапусти калькулятор. Пока метки включаются двойным щелчком по значку в трее.'});
   }).catch(error=>{dialog.showErrorBox('Не удалось открыть калькулятор',error.message);app.quit();});
   app.on('window-all-closed',()=>app.quit());
   app.on('will-quit',()=>globalShortcut.unregisterAll());

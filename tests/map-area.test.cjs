@@ -2,7 +2,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {validArea,readArea,resolveArea,areaFromSelection,snapArea,saveArea}=require('../desktop/map-area.cjs');
-const {cleanStatus,cleanClick,cleanFps,FPS_CHOICES}=require('../desktop/map-layer.cjs');
+const {cleanStatus,cleanClick,cleanMemory,cleanFps,FPS_CHOICES}=require('../desktop/map-layer.cjs');
 const main={id:101,bounds:{x:0,y:0,width:2560,height:1440}},left={id:7,bounds:{x:-1920,y:0,width:1920,height:1080}};
 
 test('Picker rectangle becomes a screen area on that monitor, clamped, at least 120 px',()=>{
@@ -39,8 +39,16 @@ test('Area file round trip; broken or tampered files are ignored',()=>{
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
 test('Layer status is sanitised before it reaches the overlay',()=>{
-  assert.deepEqual(cleanStatus({state:'locked',key:'northamerica/zestafona-default',recognised:true,calibrated:true,source:'rim',world:'northamerica',metresPerPixel:1.33,extra:1}),{state:'locked',key:'northamerica/zestafona-default',recognised:true,calibrated:true,source:'rim',world:'northamerica',metresPerPixel:1.33,message:null});
-  assert.deepEqual(cleanStatus({state:'hack',key:{},recognised:'yes',calibrated:1,source:'eval',world:'x'.repeat(41),metresPerPixel:'1',message:'x'.repeat(500)}),{state:'error',key:null,recognised:false,calibrated:false,source:null,world:null,metresPerPixel:null,message:null});
+  assert.deepEqual(cleanStatus({state:'locked',key:'northamerica/zestafona-default',recognised:true,calibrated:true,source:'rim',world:'northamerica',metresPerPixel:1.33,open:true,extra:1}),{state:'locked',key:'northamerica/zestafona-default',recognised:true,calibrated:true,source:'rim',world:'northamerica',metresPerPixel:1.33,open:true,progress:null,failed:false,message:null});
+  assert.deepEqual(cleanStatus({state:'acquiring',open:null,progress:.35}),{state:'acquiring',key:null,recognised:false,calibrated:false,source:null,world:null,metresPerPixel:null,open:null,progress:.35,failed:false,message:null});
+  for(const state of ['closed','open','searching'])assert.equal(cleanStatus({state}).state,state);
+  assert.deepEqual(cleanStatus({state:'hack',key:{},recognised:'yes',calibrated:1,source:'eval',world:'x'.repeat(41),metresPerPixel:'1',open:'yes',progress:2,failed:1,message:'x'.repeat(500)}),{state:'error',key:null,recognised:false,calibrated:false,source:null,world:null,metresPerPixel:null,open:null,progress:null,failed:false,message:null});
+});
+test('Remembered calibration of the game map: a known shape only',()=>{
+  const fix={x0:65.15,y0:108.79,s:1.326};
+  assert.deepEqual(cleanMemory({world:'northamerica',key:'northamerica/zestafona-default',fix,extra:1}),{world:'northamerica',key:'northamerica/zestafona-default',fix});
+  assert.deepEqual(cleanMemory({world:'europe',key:'<b>',fix}),{world:'europe',key:null,fix});
+  for(const bad of [null,{world:'Europe',fix},{world:'europe'},{world:'europe',fix:{...fix,s:0}},{world:'europe',fix:{...fix,x0:NaN}},{world:'europe',fix:{...fix,y0:1e6}}])assert.equal(cleanMemory(bad),null);
 });
 test('Poll rate of the game-map capture: one of the menu choices, 60 by default',()=>{
   assert.deepEqual(FPS_CHOICES,[15,30,60,120]);

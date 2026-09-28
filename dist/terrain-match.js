@@ -175,7 +175,8 @@ function recoverFix(levels,cap,fix,{minScore=.3}={}){
   const coarse=refineOn(levelFor(levels,cap,fix.s,40),cap,fix,{radius:10,scales,max:40});
   return coarse?trackFix(levels,cap,coarse,{minScore}):null;
 }
-// A generator that yields after every scale, so the layer can spread the search over its event loop.
+// A generator that yields its progress (0…1) after every scale or pair of scales, so a search can be spread over an
+// event loop, reported and stopped.
 // minLead: the best match must beat the runner-up clearly. The 3D world scores as high as a map (0.45 against
 // 0.53) but never with a lead: many places fit it about equally (lead < 0.06); a real map leads by 0.4 or more.
 function* acquireSteps(levels,cap,{minS=.7,maxS=19,step=1.08,wideMax=80,keep=6,minScore=.3,minLead=.2}={}){
@@ -191,7 +192,7 @@ function* acquireSteps(levels,cap,{minS=.7,maxS=19,step=1.08,wideMax=80,keep=6,m
     const found=b?searchWidePair(a.level,a.tpl,b.tpl,2):[searchWide(a.level,a.tpl,2)];
     [a,b].forEach((job,k)=>{if(job)for(const p of found[k])candidates.push({...fixFrom(job.level,p.u,p.v,job.s,job.off),score:p.score});});
     i+=b?2:1;
-    yield;
+    yield i/jobs.length;// progress
   }
   candidates.sort((a,b)=>b.score-a.score);
   const refined=[];

@@ -203,6 +203,19 @@ function findMapPanel(img,{step=12,minShare=.8,squareness=.015}={}){
   }
   return best;
 }
+// Is the map open? Once the area is fitted to the panel, its frame lies on the area's edges. A strip across one edge
+// (vertical: the strip runs top to bottom): the share of its length that one straight edge covers, best line of the
+// strip. An open map scores 1 on every side, the 3D world behind a closed one about 0.1–0.3 (up to 0.7 on one side).
+function lineShare({width:w,height:h,data:d},vertical,{step=12,skip=6}={}){
+  const n=vertical?w:h,len=vertical?h:w,L=(i,j)=>{const o=(vertical?j*w+i:i*w+j)*4;return .299*d[o]+.587*d[o+1]+.114*d[o+2];};
+  let best=0;
+  for(let i=1;i<n-1;i++){let hits=0;for(let j=skip;j<len-skip;j++)if(Math.abs(L(i+1,j)-L(i-1,j))>step)hits++;best=Math.max(best,hits/Math.max(1,len-2*skip));}
+  return best;
+}
+// Strips across the four edges of rect, margin px to each side of it: left, right, top, bottom.
+function edgeStrips(rect,margin){const {x,y,width:w,height:h}=rect,m=margin;return [{x:x-m,y,width:2*m,height:h,vertical:true},{x:x+w-m,y,width:2*m,height:h,vertical:true},{x,y:y-m,width:w,height:2*m,vertical:false},{x,y:y+h-m,width:w,height:2*m,vertical:false}];}
+// Open when three sides show the frame: an icon or the cursor may cover part of one.
+const panelOpen=shares=>shares.filter(s=>s>=.6).length>=3;
 
 // Screen ↔ game units: the rim is the zone's radius around its known centre (map north is up).
 function ringTransform(circle,zone){return {cx:circle.cx,cy:circle.cy,scale:circle.r/(zone.radiusM/100),x:zone.pos[0]*ZONE_WORLD,y:(1-zone.pos[1])*ZONE_WORLD};}
@@ -242,4 +255,4 @@ function recogniseZone(sample,patches){
   return best&&{...best,margin:best.score-second,confident:best.score>=.4&&best.score-second>=.15};
 }
 function decodePatch(text){const s=atob(text),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
-if(typeof module!=='undefined')module.exports={ZONE_WORLD,FRAME_FORMATS,frameToRgba,hueOf,isRingColor,hueMap,halfImage,ringPoints,huePeaks,rimRays,findMapPanel,fitCircle,refineCircle,ransacCircle,ringCandidates,detectRing,ringTransform,pixelToWorld,worldToPixel,discSample,correlate,recogniseZone,decodePatch};
+if(typeof module!=='undefined')module.exports={ZONE_WORLD,FRAME_FORMATS,frameToRgba,hueOf,isRingColor,hueMap,halfImage,ringPoints,huePeaks,rimRays,findMapPanel,lineShare,edgeStrips,panelOpen,fitCircle,refineCircle,ransacCircle,ringCandidates,detectRing,ringTransform,pixelToWorld,worldToPixel,discSample,correlate,recogniseZone,decodePatch};

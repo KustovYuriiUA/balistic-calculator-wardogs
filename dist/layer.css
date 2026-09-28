@@ -31,9 +31,9 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:600 1
 .marking #marks [data-pin]{pointer-events:auto;cursor:pointer}
 .marking #marks [data-pin]:hover circle{stroke-width:2.5}
 .marking .badge{border-color:var(--amber);background:rgba(20,17,6,.9)}
-/* Insert before the map was found: a search is running, shown in the middle of the in-game map */
-.busy{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:10px;padding:10px 16px;background:rgba(8,9,10,.88);border:1px solid var(--amber);font-size:15px;letter-spacing:.04em;color:var(--amber-hi)}
-.busy i{width:16px;height:16px;border:2px solid var(--amber);border-right-color:transparent;border-radius:50%;animation:busy-spin .8s linear infinite}
+/* The map is open (or Insert was pressed) but not found yet: what the search is doing, in the middle of the map */
+.busy{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:10px;max-width:calc(100% - 48px);box-sizing:border-box;padding:10px 16px;background:rgba(8,9,10,.88);border:1px solid var(--amber);font-size:15px;letter-spacing:.04em;color:var(--amber-hi)}
+.busy i{flex:none;width:16px;height:16px;border:2px solid var(--amber);border-right-color:transparent;border-radius:50%;animation:busy-spin .8s linear infinite}
 @keyframes busy-spin{to{transform:rotate(360deg)}}
 .readout{position:fixed;padding:4px 7px 3px;background:rgba(8,9,10,.86);border:1px solid var(--amber);color:var(--amber-hi);font:700 13px/1 var(--font);font-variant-numeric:tabular-nums;letter-spacing:.04em;white-space:nowrap;pointer-events:none}
 

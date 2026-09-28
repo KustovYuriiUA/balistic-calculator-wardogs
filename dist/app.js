@@ -36,7 +36,50 @@ function calculateShot(player, target, hit, distance, previousAim = target) {
 if (typeof module !== 'undefined') module.exports = {parseCoordinate, calculateShot};
 if (typeof document !== 'undefined') {
   const $ = id => document.getElementById(id);
-  if(window.overlay){document.body.classList.add('desktop');$('window-bar').hidden=false;$('hide-overlay').addEventListener('click',()=>window.overlay.hide());$('quit-overlay').addEventListener('click',()=>window.overlay.quit());$('view-overlay').addEventListener('click',()=>window.overlay.view());window.overlay.onMode(mode=>{const view=mode==='view';document.body.classList.toggle('view-only',view);$('overlay-mode').textContent=view?'Просмотр':'Редактирование';$('overlay-hint').innerHTML=view?'<kbd>Insert</kbd> редактировать':'<kbd>Insert</kbd> или <kbd>Esc</kbd> — в игру';});window.overlay.onUpdate?.(showUpdate);$('update-pill').addEventListener('click',()=>{const action=$('update-pill').dataset.action;if(action)window.overlay.update(action);});}
+  // Desktop window. Its mode comes from the app (view, edit or keyboard, see desktop/main.cjs); maps.js writes the
+  // mode pill and hint, which depend on the game map too. Outside the keyboard mode the window has no keyboard, so
+  // the game keeps its focus: a click into a text field asks for the keyboard, and a <select> gets its list from
+  // here (a native one does not open without the keyboard).
+  if(window.overlay){
+    document.body.classList.add('desktop');$('window-bar').hidden=false;
+    $('hide-overlay').addEventListener('click',()=>window.overlay.hide());$('quit-overlay').addEventListener('click',()=>window.overlay.quit());
+    $('overlay-mode').addEventListener('click',()=>window.overlay.marking());
+    window.overlay.onMode(mode=>{document.body.dataset.mode=mode;document.body.classList.toggle('view-only',mode==='view');closeList();});
+    document.addEventListener('mousedown',e=>{
+      if(list&&!list.contains(e.target)&&!e.target.closest?.('select'))closeList();
+      if(document.body.dataset.mode==='keyboard')return;
+      const select=e.target.closest?.('select');
+      if(select){e.preventDefault();if(!select.disabled)openList(select);return;}
+      if(e.target.closest?.('input:not([type=checkbox]):not([type=radio]),textarea,[contenteditable]'))window.overlay.keyboard();
+    },true);
+    addEventListener('resize',closeList);addEventListener('scroll',e=>{if(list&&!list.contains(e.target))closeList();},true);
+    // Moving (title bar) and resizing (window edges) through the app, which follows the cursor: Windows' own drag
+    // would activate another window for this one, which cannot take focus, and the game would lose the keyboard.
+    const drag=(e,kind)=>{
+      if(e.button!==0)return;e.preventDefault();
+      const el=e.currentTarget;el.setPointerCapture(e.pointerId);window.overlay.drag(kind,'start');
+      const move=()=>window.overlay.drag(kind,'move'),end=()=>{el.removeEventListener('pointermove',move);el.removeEventListener('pointerup',end);el.removeEventListener('pointercancel',end);window.overlay.drag(kind,'end');};
+      el.addEventListener('pointermove',move);el.addEventListener('pointerup',end);el.addEventListener('pointercancel',end);
+    };
+    $('window-bar').addEventListener('pointerdown',e=>{if(!e.target.closest('button'))drag(e,'move');});
+    document.querySelectorAll('[data-resize]').forEach(grip=>grip.addEventListener('pointerdown',e=>drag(e,grip.dataset.resize)));
+    window.overlay.onUpdate?.(showUpdate);$('update-pill').addEventListener('click',()=>{const action=$('update-pill').dataset.action;if(action)window.overlay.update(action);});
+  }
+  // A <select>'s list: one button per option, under the field (or above it, where there is more room).
+  let list=null;
+  function closeList(){list?.remove();list=null;}
+  function openList(select){
+    const again=list?.dataset.for===select.id;closeList();if(again)return;
+    const r=select.getBoundingClientRect();list=document.createElement('div');list.className='select-list';list.dataset.for=select.id;list.setAttribute('role','listbox');
+    for(const option of select.options){
+      const b=document.createElement('button');b.type='button';b.textContent=option.textContent;b.disabled=option.disabled;b.setAttribute('role','option');b.setAttribute('aria-selected',String(option.selected));
+      b.addEventListener('click',()=>{closeList();if(select.value!==option.value){select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));}});
+      list.append(b);
+    }
+    document.body.append(list);
+    const below=innerHeight-r.bottom-8,above=r.top-8,down=below>=Math.min(list.scrollHeight,240)||below>=above;
+    Object.assign(list.style,{left:Math.max(4,Math.min(r.left,innerWidth-list.offsetWidth-4))+'px',minWidth:r.width+'px',maxHeight:Math.max(120,down?below:above)+'px',top:down?r.bottom+2+'px':'',bottom:down?'':innerHeight-r.top+2+'px'});
+  }
   // Update pill in the title bar: download progress, restart when ready, link when a full download is needed.
   let updateNoticeTimer=0;
   function showUpdate(update){

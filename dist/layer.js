@@ -1,43 +1,65 @@
 'use strict';
-// Game-map layer: capture the in-game map panel and calibrate it to game units, by the zone rim when it is
-// in view and by the terrain (offline satellite map) otherwise; recognise the zone, draw the overlay's points
-// over the in-game map and show game coordinates under the cursor. Click-through, except in marker mode
-// (Insert), when clicks become points in the overlay. Excluded from capture.
+// Game-map layer: capture the in-game map panel and calibrate it to game units, by the zone rim when it is in view
+// and by the terrain (offline satellite map) otherwise; recognise the zone, draw the overlay's points over the
+// in-game map and show game coordinates under the cursor. Click-through, except in marker mode (Insert) while the
+// map is calibrated, when clicks become points in the overlay. It never takes the keyboard. Excluded from capture.
 (()=>{
   const $=id=>document.getElementById(id),api=window.mapLayer,NS='http://www.w3.org/2000/svg';
   const NAMES={kavkazi:'Kavkazi',europe:'Europe',northamerica:'North America'},WORLDS=Object.keys(MAP_LANDMARKS);
   const zones=new Map();
   for(const [world,meta]of Object.entries(MAP_LANDMARKS))for(const zone of meta.zones)zones.set(`${world}/${zone.id}`,{world,zone,title:[NAMES[world]||world,meta.rotations.find(r=>r.id===zone.rotation)?.name||zone.rotation,zone.name==='Default'?'Основная':zone.name].join(' · ')});
   const patches=Object.fromEntries(Object.entries(ZONE_PATCHES.patches).map(([key,text])=>[key,decodePatch(text)]));
-  // Frame pacing: the poll rate (a setting, 60 by default) while the map is calibrated, at most 10 per second while
-  // waiting for it; unchanged frames cost nothing. A lost rim or terrain must stay lost for a moment before the map
-  // counts as closed; a rim is checked against the zones until two frames agree. The wide terrain search is costly
-  // (~0.3 s per map): in the background it runs rarely and backs off while nothing is found.
-  const LOSE_MS=500,REOPEN_MS=3000,CHECK_MS=700,RECHECK_MS=5000,ACQUIRE_MS=[4000,15000],WAIT_MS=250;
-  let fps=60,config=null,selected=null,stream=null,restarting=false,ring=null,candidate=null,crop=null,lostAt=0,recognised=null,vote={key:null,count:0},checkedAt=0,cursor=null,sent='';
+  // Frame pacing, the poll rate (a setting, 60 by default) at most: every frame while the map is calibrated (unchanged
+  // frames cost nothing) and in the first 1.5 s after it opened, up to 30 a second while it is open and not found
+  // yet, and while it is closed only its frame is checked, up to 30 a second (about 1 ms each). Before the area is
+  // fitted to the map panel (open or closed unknown), 4 a second.
+  // A lost rim or terrain must stay lost for a moment; a rim counts once two zone checks agree.
+  const LOSE_MS=500,RECHECK_MS=5000,OPEN_MS=33,CLOSED_MS=33,WAIT_MS=250,PROBE_MS=1000,MEMORY_MS=1500;
+  // Wide terrain searches (one worker per map, ~0.3–0.5 s): soon after the map opens and then backing off while it
+  // stays open and unknown; rarely while its state is unknown; never while it is closed.
+  const OPEN_SEARCH_MS=[250,1000,2000,4000,8000],BACKGROUND_MS=[4000,15000];
+  let fps=60,config=null,selected=null,stream=null,restarting=false,crop=null,cursor=null,sent='',scene=null,marking=false,drawn='';
+  // mapOpen: from the map's frame on the edges of the fitted area; null until the area is fitted.
+  let mapOpen=null,failures=0,probeAt=0,misfits=0,lastEdges=null;
+  let ring=null,candidate=null,lostAt=0,recognised=null,vote={key:null,count:0},checkedAt=0,lastSig=null,lastCandidates=[],forced=0;
   // rimHue: hue of the rim recognised as the zone; until then no circle calibrates (marker circles look alike).
-  let rimHue=null,rimVerified=false,lastSig=null,lastCandidates=[],forced=0,busy=false;
-  let scene=null,marking=false,drawn='',frameWaiters=[],abort=false,terrain=null,lastWorld=null,lastImg=null,acquireAt=0,acquireWait=ACQUIRE_MS[0],attempts=0,searching=null;
+  let rimHue=null,rimVerified=false,terrain=null,lastWorld=null,lastImg=null,acquireAt=0,acquireWait=BACKGROUND_MS[0];
+  // memory: the last calibration (map, zone, fix), kept by the app across sessions; tried on every frame until
+  // memoryUntil after the map opens (once at start, while open or closed is not known).
+  let memory=null,memoryUntil=Infinity,rememberedAt=0;
   // Timings for the troubleshooting snapshot: when each step first happened (ms since the page started), map loads.
   window.layerStats={frames:0,skipped:0,ms:0,acquisitions:0,timeline:{},loads:{},searches:[]};
   const mark=name=>{window.layerStats.timeline[name]??=Math.round(performance.now());};
-  // While the map is closed the circle search (~15 ms a frame) runs 4 times a second: a few per cent of one core.
-  const lockedMs=()=>1000/fps,searchMs=()=>Math.max(WAIT_MS,1000/fps);
+  const interval=()=>ring||terrain||mapOpen&&performance.now()<memoryUntil?1000/fps:Math.max(mapOpen===false?CLOSED_MS:mapOpen?OPEN_MS:WAIT_MS,1000/fps);
 
-  // Offline map pyramids: coarse (512², grey images made ahead by scripts/zone-patches.cjs, milliseconds to load)
-  // for the wide search on every map; fine (2048², 8 m/px) for the map in view, shrunk from the 5120² map by
-  // createImageBitmap, which keeps the ~0.7 s of decoding and shrinking off this thread.
-  const loads=new Map(),ready=new Map(),coarseLevels=new Map();
+  // Wide searches run in one worker per map, all maps at once, so capture and tracking go on meanwhile. A map whose
+  // worker cannot start is searched on this thread instead.
+  const searchers=new Map();
+  for(const world of WORLDS){
+    const s={worker:null,ready:false};searchers.set(world,s);
+    try{s.worker=new Worker('terrain-worker.js');s.worker.onmessage=e=>searchMessage(world,e.data);s.worker.onerror=()=>{s.worker=null;s.ready=false;if(job?.left.has(world))searchMessage(world,{type:'result',id:job.id,fix:null});};}catch{s.worker=null;}
+  }
+  // Offline map pyramids. Coarse: the grey 1024² maps made ahead by scripts/zone-patches.cjs (milliseconds to load);
+  // at 16 m/px they go to the map's search worker (512² is too coarse to tell the maps apart for sure), shrunk to
+  // 512² they stay here for tracking until the fine one is loaded. Fine (2048², 8 m/px): the map in view, shrunk from
+  // the 5120² map by createImageBitmap, which keeps the ~0.7 s of decoding and shrinking off this thread.
+  const loads=new Map(),ready=new Map(),coarseLevels=new Map(),searchLevels=new Map();
   function load(world,size){
     const key=world+'@'+size;
     if(!loads.has(key))loads.set(key,(async()=>{
       const t0=performance.now(),img=new Image(),coarse=size===512;img.src=coarse?`maps/terrain-${world}.png`:`maps/${world}.webp`;await img.decode();
       const source=coarse?img:await createImageBitmap(img,{resizeWidth:size,resizeHeight:size,resizeQuality:'high'}),t1=performance.now();
-      const g=new OffscreenCanvas(size,size).getContext('2d',{willReadFrequently:true});g.drawImage(source,0,0,size,size);
+      const grey=n=>{const g=new OffscreenCanvas(n,n).getContext('2d',{willReadFrequently:true});g.imageSmoothingQuality='high';g.drawImage(source,0,0,n,n);return lumaOf(g.getImageData(0,0,n,n));};
+      const luma=grey(size),t2=performance.now(),levels=mapPyramid(luma);
       if(!coarse)source.close();
-      const pixels=g.getImageData(0,0,size,size),t2=performance.now(),levels=mapPyramid(lumaOf(pixels));
       window.layerStats.loads[key]={decode:Math.round(t1-t0),draw:Math.round(t2-t1),pyramid:Math.round(performance.now()-t2)};
-      if(coarse){coarseLevels.set(world,levels);if(!ready.has(world))ready.set(world,levels);return levels;}
+      if(coarse){
+        coarseLevels.set(world,levels);if(!ready.has(world))ready.set(world,levels);
+        // A worker that cannot start leaves its map to this thread: the 16 m/px pyramid is kept here then.
+        const s=searchers.get(world),search=grey(1024);
+        if(s.worker)s.worker.postMessage({type:'map',size:1024,luma:search.data},[search.data.buffer]);else searchLevels.set(world,mapPyramid(search));
+        return levels;
+      }
       // A fine pyramid is ~110 MB: keep only the map in view's, the other maps fall back to their coarse levels.
       for(const other of WORLDS)if(other!==world&&loads.has(other+'@2048')){loads.delete(other+'@2048');if(coarseLevels.has(other))ready.set(other,coarseLevels.get(other));else ready.delete(other);}
       ready.set(world,levels);
@@ -53,6 +75,7 @@
     return {rect:{x:v.x+x,y:v.y+y,width:even(Math.min(v.width-x,config.rect.width*k)),height:even(Math.min(v.height-y,config.rect.height*k))},k,ox:x/k-(config.rect.x-b.x),oy:y/k-(config.rect.y-b.y)};
   }
   const activeKey=()=>recognised||selected;
+  const hasFine=world=>ready.has(world)&&ready.get(world)!==coarseLevels.get(world);
   const rimEntry=()=>ring&&rimVerified&&zones.get(recognised);
   // Frame pixels ↔ game units: the rim when it is in view (and the zone known), else the terrain fix.
   function calibration(){
@@ -86,17 +109,61 @@
     const layout=await frame.copyTo(p.buf,options);
     return {buf:p.buf,layout,format,rgba:()=>frameToRgba(p.buf,layout,format,rect.width,rect.height,frame.colorSpace,p.rgba)};
   }
+  // The map's frame (panelOpen): four thin strips across the fitted area's edges, 8 screen pixels to each side.
+  async function frameOpen(frame,c){
+    const v=frame.visibleRect,m=Math.max(4,Math.round(4*c.k)*2),even=n=>Math.floor(n/2)*2,shares=[];
+    for(const [i,s]of edgeStrips(c.rect,m).entries()){
+      const x=even(Math.max(v.x,s.x)),y=even(Math.max(v.y,s.y)),w=even(Math.min(v.x+v.width,s.x+s.width)-x),h=even(Math.min(v.y+v.height,s.y+s.height)-y);
+      if(w<4||h<4){shares.push(0);continue;}
+      const copy=await copyFrame(frame,{x,y,width:w,height:h},'edge'+i);
+      shares.push(lineShare({width:w,height:h,data:copy.rgba()},s.vertical));
+    }
+    lastEdges=shares.map(s=>+s.toFixed(2));
+    return panelOpen(shares);
+  }
+  // The map's frame decides open or closed on each frame: waiting for a second one only made opening feel slow.
+  function openState(open,now){
+    if(open===mapOpen)return;
+    mapOpen=open;
+    if(open)opened(now);else closed();
+  }
+  // Opened: the last calibration is tried on the first frame, the rim is checked at once, the terrain search follows
+  // shortly unless the rim locks first. Closed: the points go at once; what was found is remembered for next time.
+  function opened(now){failures=0;misfits=0;memoryUntil=now+MEMORY_MS;checkedAt=0;lastSig=null;acquireAt=now+OPEN_SEARCH_MS[0];}
+  function closed(){
+    if(terrain)remember();
+    ring=null;candidate=null;lostAt=0;terrain=null;rimVerified=false;rimHue=null;
+    const key=recognised||vote.key;vote={key,count:key?1:0};// one agreeing check re-verifies the same zone
+    if(job)endSearch(null);
+  }
+  function remember(){
+    if(!terrain)return;
+    const key=recognised||vote.key;
+    memory={world:terrain.world,key:zones.get(key)?.world===terrain.world?key:null,fix:{...terrain.fix}};
+    rememberedAt=performance.now();api.remember(memory);
+  }
   // Returns false when the frame was skipped as unchanged.
   async function analyse(frame,now){
     const c=cropFor(frame),{width,height}=c.rect;
     if(width<64||height<64)throw new Error('Область карты вне экрана');
+    // Closed: only the map's frame is checked (and a probe once a second), nothing else.
+    let edges=false;
+    if(config.snapped&&mapOpen===false){
+      openState(await frameOpen(frame,c),now);edges=true;
+      if(mapOpen===false){crop=c;if(now>=probeAt){probeAt=now+PROBE_MS;await probe(frame,c);}return true;}
+    }
     const copy=await copyFrame(frame,c.rect,'crop'),{buf,layout,format}=copy;
-    // A static map (or a world standing still) needs no work, unless a rim waits for its confirming frame or its
-    // zone check, a lost rim or terrain waits to count as gone, or a background terrain search is due.
+    // A static map (or a world standing still) needs no work, unless the map is about to count as open or closed, a
+    // rim waits for its confirming frame or its zone check, a lost rim or terrain waits to count as gone, a terrain
+    // found by a search waits to be refined, or a search is due.
     const sig=rawSignature(buf,layout,format,width,height);
-    const settled=!(candidate&&!ring)&&!(ring&&!rimVerified)&&!(ring&&lostAt)&&!terrain?.lostAt&&(Boolean(crop&&calibration())||now<acquireAt);
+    const settled=!(memory&&!terrain&&now<memoryUntil)&&!(candidate&&!ring)&&!(ring&&!rimVerified)&&!(ring&&lostAt)&&!terrain?.lostAt&&!(terrain?.fresh&&hasFine(terrain.world))&&(Boolean(crop&&calibration())||now<acquireAt);
     if(forced>0)forced--;else if(lastSig&&settled&&rawUnchanged(sig,lastSig))return false;
     lastSig=sig;
+    if(config.snapped&&!edges){
+      openState(await frameOpen(frame,c),now);
+      if(mapOpen===false){crop=c;return true;}
+    }
     const img={width,height,data:copy.rgba()};
     crop=c;lastImg=img;
     // Circles of any colour; once a rim is recognised as the zone only circles of its hue count as that rim.
@@ -106,25 +173,25 @@
     const same=candidate&&Math.hypot(found?.cx-candidate.cx,found?.cy-candidate.cy)<4&&Math.abs(found.r-candidate.r)<Math.max(3,found.r*.02);
     candidate=found;
     if(found&&(ring||same)){
-      ring=found;
-      if(lostAt&&now-lostAt>REOPEN_MS)checkedAt=0;// the map was reopened, maybe in another match: verify the zone now
-      lostAt=0;
-      if(now-checkedAt>(rimVerified?RECHECK_MS:CHECK_MS)){checkedAt=now;recognise(img,found);}
-    }else if(!found){if(!lostAt)lostAt=now;if(now-lostAt>LOSE_MS){ring=null;rimVerified=false;rimHue=null;vote={key:null,count:0};}}
+      ring=found;lostAt=0;
+      if(!rimVerified||now-checkedAt>RECHECK_MS){checkedAt=now;recognise(img,found);}
+    }else if(!found){if(!lostAt)lostAt=now;if(now-lostAt>LOSE_MS){ring=null;rimVerified=false;rimHue=null;vote={key:recognised,count:recognised?1:0};}}
     const entry=rimEntry();
     if(!config.snapped&&panelTries<3&&(entry||terrain)){panelTries++;if(await fitPanel(frame,c))panelTries=3;}
     if(entry){
       // The rim calibrates; the terrain tracker follows it, ready for when the rim leaves the view.
+      if(job)endSearch(null);
       const t=ringTransform(ring,entry.zone),corner=pixelToWorld(t,0,0);
-      terrain={world:entry.world,fix:{x0:corner.x,y0:corner.y,s:100/t.scale},seen:null,lostAt:0};lastWorld=entry.world;acquireWait=ACQUIRE_MS[0];load(entry.world,2048);
-      return;
-    }
-    if(terrain){track(img,now);return;}
-    if(now>=acquireAt)await acquireInBackground(img);
+      terrain={world:entry.world,fix:{x0:corner.x,y0:corner.y,s:100/t.scale},score:null,seen:null,lostAt:0,fresh:false};lastWorld=entry.world;acquireWait=BACKGROUND_MS[0];failures=0;load(entry.world,2048);
+    }else if(!terrain&&memory&&now<=memoryUntil)tryMemory(img);
+    else if(terrain)track(img,now);
+    if(terrain&&now-rememberedAt>10000)remember();
+    if(!entry&&!terrain&&!job&&now>=acquireAt)search(img);
+    return true;
   }
   // Once per drawn area, when the map is calibrated (so it is surely open): find the square map panel in the area
-  // grown by 8 % on each side and have the overlay fit the area to it — nothing around the map is analysed then.
-  // Up to three tries on later calibrated frames.
+  // grown by 8 % on each side and have the overlay fit the area to it — nothing around the map is analysed then,
+  // and the panel's frame tells open from closed. Up to three tries on later calibrated frames.
   let panelTries=0;
   async function fitPanel(frame,c){
     const v=frame.visibleRect,b=config.display.bounds,even=n=>Math.max(0,Math.floor(n/2)*2);
@@ -136,34 +203,84 @@
     api.panel({x:b.x+(x+p.x-v.x)/c.k,y:b.y+(y+p.y-v.y)/c.k,width:p.width/c.k,height:p.height/c.k});
     return true;
   }
+  // While the frame says closed, once a second: is the zone rim there anyway? Three times in a row means the map
+  // panel moved (another resolution or UI scale in the game): the area is fitted again.
+  async function probe(frame,c){
+    const copy=await copyFrame(frame,c.rect,'crop'),img={width:c.rect.width,height:c.rect.height,data:copy.rgba()};
+    const found=ringCandidates(img)[0],result=found&&recogniseZone(discSample(img,found,ZONE_PATCHES.size),patches);
+    misfits=result?.confident?misfits+1:0;
+    if(misfits>=3){misfits=0;api.refit();}
+  }
+  // The last calibration, on the frames after the map opened: the map usually reopens as it was left, but may still
+  // be fading or zooming in on the first ones. Without the map's frame (area not fitted yet) the map may be closed:
+  // one try only then, and the 3D world must not pass for the map.
+  function tryMemory(img){
+    if(mapOpen!==true)memoryUntil=0;
+    const levels=ready.get(memory.world);if(!levels)return;
+    const minScore=mapOpen?.4:.5,cap=captureOf(img),f=trackFix(levels,cap,memory.fix,{minScore})||recoverFix(levels,cap,memory.fix,{minScore});
+    // Found on the coarse levels (just after start): refined once the fine ones are loaded.
+    if(f){terrain={world:memory.world,fix:{x0:f.x0,y0:f.y0,s:f.s},score:f.score,seen:signature(img),lostAt:0,fresh:!hasFine(memory.world)};lastWorld=memory.world;load(memory.world,2048);}
+  }
   function track(img,now){
-    const sig=signature(img);if(terrain.seen&&unchanged(sig,terrain.seen))return;
+    // A map found by a search (fresh) is refined once its fine levels are loaded; until then, and while the map stands
+    // still, the search's fix stays (at 16 m/px it is finer than this thread's coarse levels).
+    const sig=signature(img),fine=hasFine(terrain.world);if(terrain.seen&&unchanged(sig,terrain.seen)&&!(terrain.fresh&&fine))return;
     const levels=ready.get(terrain.world);if(!levels)return;
-    const cap=captureOf(img),f=trackFix(levels,cap,terrain.fix)||recoverFix(levels,cap,terrain.fix);
-    if(f){terrain.fix={x0:f.x0,y0:f.y0,s:f.s};terrain.seen=sig;terrain.lostAt=0;return;}
-    if(!terrain.lostAt)terrain.lostAt=now;else if(now-terrain.lostAt>LOSE_MS){terrain=null;acquireAt=0;acquireWait=ACQUIRE_MS[0];}
+    // Without the map's frame to say it closed, the match must stay near the scores this map gave: the 3D world
+    // behind a closed map matches ~0.45–0.5 somewhere near, the map itself 0.55–0.7.
+    const minScore=mapOpen===null&&terrain.score?Math.max(.3,terrain.score*.75):.3;
+    const cap=captureOf(img),f=trackFix(levels,cap,terrain.fix,{minScore})||recoverFix(levels,cap,terrain.fix,{minScore});
+    if(fine)terrain.fresh=false;
+    if(f){terrain.fix={x0:f.x0,y0:f.y0,s:f.s};terrain.score=terrain.score?terrain.score*.8+f.score*.2:f.score;terrain.seen=sig;terrain.lostAt=0;return;}
+    if(!terrain.lostAt)terrain.lostAt=now;else if(now-terrain.lostAt>LOSE_MS){terrain=null;acquireAt=0;acquireWait=BACKGROUND_MS[0];failures=0;}
   }
-  // Wide terrain search on one frame (~0.7 s per map), the likely map first: the last matched one, then the
-  // overlay's. `count` maps are tried; null lets every third background search try them all.
-  function acquire(img,count){
-    searching??=(async()=>{
-      try{
-        const prior=(activeKey()||'').split('/')[0],order=[...new Set([lastWorld,prior,...WORLDS])].filter(w=>MAP_LANDMARKS[w]),cap=captureOf(img);
-        for(const world of order.slice(0,count??(attempts++%3===0?order.length:1))){
-          const levels=ready.get(world)||await load(world,512);if(!levels||abort)continue;
-          const began=performance.now(),steps=acquireSteps(levels,cap,{step:1.12});let r;
-          for(;;){r=steps.next();if(r.done)break;await new Promise(res=>setTimeout(res,0));if(abort)return false;}
-          window.layerStats.acquisitions++;window.layerStats.searches=[...window.layerStats.searches.slice(-9),{world,ms:Math.round(performance.now()-began),score:r.value?+r.value.score.toFixed(3):null,confident:Boolean(r.value?.confident)}];
-          if(r.value?.confident){terrain={world,fix:{x0:r.value.x0,y0:r.value.y0,s:r.value.s},seen:signature(img),lostAt:0};lastWorld=world;load(world,2048);return true;}
-        }
-        return false;
-      }finally{searching=null;}
-    })();
-    return searching;
+
+  // One wide search: every map at once, in the workers. The first confident map wins and the others stop.
+  let job=null,jobs=0;
+  function search(img){
+    acquireAt=Infinity;// until this search ends
+    acquire(img).then(ok=>{
+      // null: stopped (the rim locked or the map closed), neither found nor failed.
+      if(ok!==false){if(ok){failures=0;acquireWait=BACKGROUND_MS[0];}acquireAt=0;return;}
+      failures++;
+      acquireAt=performance.now()+(mapOpen?OPEN_SEARCH_MS[Math.min(failures,OPEN_SEARCH_MS.length-1)]:(acquireWait=Math.min(BACKGROUND_MS[1],acquireWait*1.5)));
+    });
   }
-  async function acquireInBackground(img){
-    const ok=await acquire(img,null);
-    acquireWait=ok?ACQUIRE_MS[0]:Math.min(ACQUIRE_MS[1],acquireWait*1.5);acquireAt=performance.now()+acquireWait;
+  function acquire(img){
+    const luma=lumaOf(img),worlds=[...new Set([lastWorld,(activeKey()||'').split('/')[0],...WORLDS])].filter(w=>MAP_LANDMARKS[w]);
+    const current=job={id:++jobs,seen:signature(img),left:new Map(worlds.map(w=>[w,0])),total:worlds.length,began:performance.now()};
+    current.done=new Promise(resolve=>{current.resolve=resolve;});
+    window.layerStats.acquisitions++;
+    for(const world of worlds){const s=searchers.get(world);if(s.worker&&s.ready)s.worker.postMessage({type:'acquire',id:current.id,width:luma.width,height:luma.height,luma:luma.data});else{current.cap??={width:luma.width,height:luma.height,I:integralOf(luma)};searchHere(world,current);}}
+    draw();report();
+    return current.done;
+  }
+  async function searchHere(world,current){
+    if(!searchLevels.has(world))await load(world,512);
+    const levels=searchLevels.get(world)||ready.get(world);let r={value:null};
+    if(levels){const steps=acquireSteps(levels,current.cap,{step:1.12});for(;;){if(job!==current)return;r=steps.next();if(r.done)break;searchMessage(world,{type:'progress',id:current.id,value:r.value});await new Promise(res=>setTimeout(res,0));}}
+    searchMessage(world,{type:'result',id:current.id,fix:r.value});
+  }
+  const searchProgress=()=>job?(job.total-job.left.size+[...job.left.values()].reduce((a,b)=>a+b,0))/job.total:null;
+  function searchMessage(world,m){
+    if(m.type==='ready'){searchers.get(world).ready=true;window.layerStats.workers=(window.layerStats.workers||0)+1;return;}
+    if(!job||m.id!==job.id||!job.left.has(world))return;
+    if(m.type==='progress'){job.left.set(world,m.value);draw();report();return;}
+    if(m.type!=='result')return;
+    job.left.delete(world);
+    const f=m.fix;window.layerStats.searches=[...window.layerStats.searches.slice(-9),{world,ms:Math.round(performance.now()-job.began),score:f?+f.score.toFixed(3):null,confident:Boolean(f?.confident)}];
+    if(f?.confident){
+      terrain={world,fix:{x0:f.x0,y0:f.y0,s:f.s},score:f.score,seen:job.seen,lostAt:0,fresh:true};lastWorld=world;load(world,2048);
+      endSearch(true);
+    }else if(!job.left.size)endSearch(false);
+    else{draw();report();}
+  }
+  // ok: true found, false nothing found, null stopped (the rim locked or the map closed).
+  function endSearch(ok){
+    const current=job;if(!current)return;
+    job=null;
+    for(const world of current.left.keys())searchers.get(world).worker?.postMessage({type:'abort',id:current.id});
+    current.resolve(ok);draw();report();
   }
   // Is this circle the zone rim, and which zone? Two agreeing checks (or one very clear one) verify it; from then on
   // its hue marks the rim. A confident disagreement drops the verification until the new zone is confirmed.
@@ -177,16 +294,23 @@
   }
 
   const el=(parent,tag,attrs={})=>{const node=document.createElementNS(NS,tag);for(const [k,v]of Object.entries(attrs))node.setAttribute(k,v);parent.append(node);return node;};
+  // What the search is doing, shown in the middle of the in-game map: opening it or Insert never looks like nothing.
+  function busyText(cal){
+    if(cal||mapOpen===false||!(mapOpen||job||marking))return null;
+    if(job)return `Ищу карту по местности · ${Math.round(searchProgress()*100)} %`;
+    if(failures)return 'Карта не узнана — отдали её, чтобы был виден круг зоны';
+    return mapOpen?'Карта открыта — ищу круг зоны…':'Ищу карту игры…';
+  }
   function draw(){
-    const cal=crop&&calibration(),entry=rimEntry(),rim=$('rim');
-    document.body.classList.toggle('weak',Boolean(ring?.weak));document.body.classList.toggle('guess',Boolean(cal&&cal.source!=='rim'));document.body.classList.toggle('marking',marking);
-    $('busy').hidden=!busy||Boolean(cal);
-    rim.hidden=!ring||!crop;
+    const cal=crop&&calibration(),entry=rimEntry(),rim=$('rim'),busy=busyText(cal);
+    document.body.classList.toggle('weak',Boolean(ring?.weak));document.body.classList.toggle('guess',Boolean(cal&&cal.source!=='rim'));document.body.classList.toggle('marking',marking&&Boolean(cal));
+    $('busy').hidden=!busy;if(busy)$('busy-text').textContent=busy;
+    rim.hidden=!ring||!crop||mapOpen===false;
     if(!rim.hidden){rim.setAttribute('cx',ring.cx/crop.k+crop.ox);rim.setAttribute('cy',ring.cy/crop.k+crop.oy);rim.setAttribute('r',ring.r/crop.k);}
     if(!cal){$('badge').hidden=true;$('readout').hidden=true;drawMarks(null);return;}
     $('badge').hidden=false;
-    $('badge-title').textContent=marking?'Метки':entry?entry.title:`${NAMES[cal.world]||cal.world} · по местности`;
-    $('badge-note').textContent=marking?`${scene?.hint||'ЛКМ — точка, ПКМ — разрыв'} · Insert или Esc — в игру`:entry&&ring.weak?'круг виден частично — отдали карту':(entry?(recognised?'распознано':'зона из оверлея'):'круга не видно')+' · Insert — метки';
+    $('badge-title').textContent=entry?entry.title:`${NAMES[cal.world]||cal.world} · по местности`;
+    $('badge-note').textContent=marking?'ЛКМ — точка · ПКМ — разрыв · Insert — выключить':entry&&ring.weak?'круг виден частично — отдали карту':'Insert — ставить метки';
     drawMarks(cal);drawReadout(cal);
   }
   // The overlay's pins, lines and solution label, as on its own map. Redrawn only when something moved.
@@ -212,18 +336,24 @@
     // Below-left of the cursor: the game prints its own readout to the right of it.
     out.style.left=Math.max(4,cursor.x-out.offsetWidth-14)+'px';out.style.top=Math.min(innerHeight-out.offsetHeight-4,cursor.y+18)+'px';
   }
+  // starting: no frame analysed yet; closed / open: the map's frame says so (fitted area); searching: open or closed
+  // unknown; acquiring: a wide terrain search runs (progress 0…1); failed: the last search found nothing.
   function report(status){
     const cal=crop&&calibration(),entry=rimEntry();
-    // starting: no frame analysed yet; acquiring: a search asked for by Insert is running.
-    status??={state:busy&&!cal?'acquiring':cal?(cal.source==='rim'&&ring.weak?'weak':'locked'):window.layerStats.timeline.firstAnalysed?'searching':'starting',key:entry?activeKey():null,recognised:Boolean(entry&&recognised),calibrated:Boolean(cal),source:cal?.source??null,world:cal?.world??null,metresPerPixel:cal?Math.round(cal.mpp*100)/100:null};
+    status??={state:cal?(cal.source==='rim'&&ring.weak?'weak':'locked'):!window.layerStats.timeline.firstAnalysed?'starting':mapOpen===false?'closed':job?'acquiring':mapOpen?'open':'searching',key:entry?activeKey():null,recognised:Boolean(entry&&recognised),calibrated:Boolean(cal),source:cal?.source??null,world:cal?.world??null,metresPerPixel:cal?Math.round(cal.mpp*100)/100:null,open:mapOpen,progress:job?Math.round(searchProgress()*20)/20:null,failed:!cal&&failures>0};
     const text=JSON.stringify(status);if(text!==sent){sent=text;api.status(status);}
   }
 
+  const validMemory=m=>m&&MAP_LANDMARKS[m.world]&&['x0','y0','s'].every(k=>Number.isFinite(m.fix?.[k]))&&m.fix.s>0?{world:m.world,key:zones.has(m.key)?m.key:null,fix:m.fix}:null;
   async function start(){
     try{
       mark('start');config=await api.config();mark('config');selected??=config.selection;fps=config.fps||fps;
-      // Coarse maps for every world right away; the first background search waits until the first frames are shown.
+      memory??=validMemory(config.memory);
+      if(memory){lastWorld??=memory.world;if(!vote.key&&memory.key)vote={key:memory.key,count:1};}
+      // Coarse maps for every world right away; the remembered map's fine one and the first background search wait
+      // until the first frames are shown.
       for(const world of WORLDS)load(world,512);acquireAt=Math.max(acquireAt,performance.now()+1500);
+      if(memory)setTimeout(()=>load(memory.world,2048),1500);
       stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{mandatory:{chromeMediaSource:'desktop',chromeMediaSourceId:config.sourceId,maxWidth:8192,maxHeight:8192,maxFrameRate:fps}}});
       mark('stream');const reader=new MediaStreamTrackProcessor({track:stream.getVideoTracks()[0],maxBufferSize:1}).readable.getReader();
       for(let last=0;;){
@@ -231,19 +361,18 @@
         if(done)throw new Error('Захват экрана остановлен');
         mark('firstFrame');
         const now=performance.now();
-        if(now-last<(ring||terrain?lockedMs():searchMs())-2){frame.close();continue;}
+        if(now-last<interval()-2){frame.close();continue;}
         last=now;
         let analysed;try{analysed=await analyse(frame,now);}finally{frame.close();}
         const stats=window.layerStats;
         if(analysed===false){stats.skipped++;continue;}
         stats.ms=stats.ms*.9+(performance.now()-now)*.1;stats.frames++;mark('firstAnalysed');draw();report();
-        frameWaiters.splice(0).forEach(resolve=>resolve());
       }
     }catch(error){
       stream?.getTracks().forEach(track=>track.stop());stream=null;
       // A new poll rate restarts the capture at once; any other end of the capture is an error, retried in 3 s.
       if(restarting){restarting=false;start();return;}
-      ring=null;terrain=null;draw();
+      ring=null;terrain=null;if(job)endSearch(null);draw();
       // Our own errors are Russian; browser capture errors get a plain explanation.
       report({state:'error',message:/[а-я]/i.test(error?.message||'')?error.message:'не удалось захватить экран'});
       setTimeout(start,3000);
@@ -258,25 +387,11 @@
   }
   addEventListener('click',e=>click(e,'left'));
   addEventListener('contextmenu',e=>{e.preventDefault();click(e,'right');});
-  addEventListener('keydown',e=>{
-    if(!marking||e.repeat)return;e.preventDefault();
-    if(e.code==='Escape')api.exitMarking();else api.key({code:e.code,ctrl:e.ctrlKey});
-  });
-  // Insert with no calibration yet: search the terrain now, the likely map first, every map if need be. The map may
-  // have been opened a moment ago (M, then Insert): stop a background search on an older frame, have the next frames
-  // analysed even if they look unchanged, wait for one (at most 0.4 s) and search that frame. Shown as busy meanwhile.
-  api.onAcquire(async()=>{
-    busy=true;draw();report();
-    try{
-      abort=true;await searching;abort=false;
-      forced=2;await new Promise(resolve=>{frameWaiters.push(resolve);setTimeout(resolve,400);});
-      abort=true;await searching;abort=false;// that frame may have started a background search of its own
-      // The likely map first (~0.3 s). The others only when a circle is in view or no map was found yet this
-      // session: with the game map closed, Insert should open the overlay window without a long wait.
-      const others=()=>lastCandidates.some(c=>c.r>=40)||lastWorld===null;
-      const ok=Boolean(crop&&calibration())||Boolean(lastImg&&(await acquire(lastImg,1)||others()&&await acquire(lastImg,WORLDS.length)));
-      busy=false;draw();report();api.acquired(ok);
-    }catch{busy=false;draw();report();api.acquired(false);}
+  // Insert while the map is not found yet: search now, on fresh frames (the map may have opened a moment ago).
+  api.onMarking(on=>{
+    marking=on;
+    if(on&&!(crop&&calibration())&&mapOpen!==false){forced=2;if(!job)acquireAt=0;}
+    draw();report();
   });
   api.onSettings(next=>{
     const f=Math.round(Number(next?.fps));if(!Number.isFinite(f)||f===fps)return;
@@ -288,9 +403,10 @@
     let png=null;
     if(lastImg){const c=new OffscreenCanvas(lastImg.width,lastImg.height);c.getContext('2d').putImageData(new ImageData(lastImg.data,lastImg.width,lastImg.height),0,0);png=new Uint8Array(await(await c.convertToBlob({type:'image/png'})).arrayBuffer());}
     const cal=crop&&calibration();
-    api.snapshot({png,info:{time:new Date().toISOString(),fps,area:config?.rect,crop:crop&&{...crop.rect,k:crop.k},status:JSON.parse(sent||'null'),candidates:lastCandidates,ring:ring&&{cx:ring.cx,cy:ring.cy,r:ring.r,hue:ring.hue,weak:ring.weak},rimVerified,rimHue,recognised,vote,terrain:terrain&&{world:terrain.world,fix:terrain.fix},calibration:cal&&{source:cal.source,world:cal.world,metresPerPixel:cal.mpp},loaded:[...ready.keys()],stats:window.layerStats}});
+    api.snapshot({png,info:{time:new Date().toISOString(),fps,area:config?.rect,snapped:config?.snapped,crop:crop&&{...crop.rect,k:crop.k},status:JSON.parse(sent||'null'),mapOpen,edges:lastEdges,candidates:lastCandidates,ring:ring&&{cx:ring.cx,cy:ring.cy,r:ring.r,hue:ring.hue,weak:ring.weak},rimVerified,rimHue,recognised,vote,terrain:terrain&&{world:terrain.world,fix:terrain.fix,score:terrain.score},memory,workers:Object.fromEntries([...searchers].map(([w,s])=>[w,s.worker?(s.ready?'ready':'loading'):'this thread'])),calibration:cal&&{source:cal.source,world:cal.world,metresPerPixel:cal.mpp},loaded:[...ready.keys()],stats:window.layerStats}});
   });
-  api.onMarking(on=>{marking=on;draw();});
+  // The drawn area turned out to be the panel already: from now on its frame says open or closed.
+  api.onSnapped(()=>{if(config){config.snapped=true;mapOpen=true;}});
   api.onScene(next=>{scene=next;if(config)draw();});
   api.onSelection(key=>{selected=key;if(config){draw();report();}});
   addEventListener('mousemove',e=>{cursor={x:e.clientX,y:e.clientY};if(crop)drawReadout();});

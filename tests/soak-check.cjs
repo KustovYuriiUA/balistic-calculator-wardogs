@@ -1,7 +1,7 @@
 'use strict';
 // Memory soak of the game-map layer (run with Electron on a real screen): a stand-in "game" window keeps its map
 // moving so every frame is analysed, through three phases — rim in view (rim tracking), rim painted over (terrain
-// tracking), map closed (background search) — while the memory of every process is sampled. Growth after warm-up
+// tracking), map closed (only its frame checked) — while the memory of every process is sampled. Growth after warm-up
 // means a leak. SHOT_SOAK_SECONDS sets the length (default 150); SHOT_TEST_NO_GPU=1 runs without GPU acceleration,
 // the path of machines whose graphics driver Chromium rejects.
 const {app,BrowserWindow,screen}=require('electron');
@@ -19,11 +19,12 @@ app.whenReady().then(async()=>{
   fs.writeFileSync(path.join(data,'map-area.json'),JSON.stringify({display:{id:String(display.id),bounds:b},rect:{x:game.x+132,y:game.y+57,width:956,height:958}}));
   fs.writeFileSync(path.join(data,'window-position.json'),JSON.stringify({x:b.x+b.width-1090,y:b.y+20}));
   fs.copyFileSync(path.join(__dirname,'fixtures','zone-northamerica.webp'),path.join(data,'game.webp'));
-  // The stand-in pans its picture ±12 px in a slow circle, so no two frames are alike.
+  // The stand-in pans the map inside its panel ±12 px in a slow circle, so no two frames are alike; the panel's frame
+  // stays put, as in the game.
   fs.writeFileSync(path.join(data,'game.html'),`<!doctype html><body style="margin:0;overflow:hidden;background:#000"><canvas id="map" width="1251" height="1085" style="display:block"></canvas><script>
     const c=document.getElementById('map'),g=c.getContext('2d'),img=new Image();let plain=null,t0=performance.now();
     img.onload=()=>{const o=new OffscreenCanvas(1251,1085),og=o.getContext('2d');og.drawImage(img,0,0);plain=o;requestAnimationFrame(draw);};img.src='game.webp';
-    function draw(){const t=(performance.now()-t0)/1000;g.fillStyle='#000';g.fillRect(0,0,1251,1085);g.drawImage(plain,Math.round(12*Math.sin(t*.7)),Math.round(12*Math.cos(t*.5)));requestAnimationFrame(draw);}
+    function draw(){const t=(performance.now()-t0)/1000;g.drawImage(plain,0,0);g.save();g.beginPath();g.rect(176,101,868,870);g.clip();g.fillStyle='#000';g.fillRect(176,101,868,870);g.drawImage(plain,Math.round(12*Math.sin(t*.7)),Math.round(12*Math.cos(t*.5)));g.restore();requestAnimationFrame(draw);}
     window.hideRim=()=>{const og=plain.getContext('2d'),d=og.getImageData(0,0,1251,1085),p=d.data;for(let i=0;i<p.length;i+=4){const mx=Math.max(p[i],p[i+1],p[i+2]),mn=Math.min(p[i],p[i+1],p[i+2]);if(mx===p[i+1]&&mx-mn>=12){const l=.3*p[i]+.59*p[i+1]+.11*p[i+2];p[i]=p[i+1]=p[i+2]=l;}}og.putImageData(d,0,0);};
   </script>`);
   const stand=new BrowserWindow({...game,frame:false,resizable:false,focusable:false,skipTaskbar:true,show:false,useContentSize:true});

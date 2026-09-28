@@ -54,14 +54,20 @@ option{background:var(--bg-2);color:var(--text)}
 .hud-frame::after{bottom:-1px;right:-1px;border-bottom-width:2px;border-right-width:2px}
 
 /* Window bar (desktop) */
-#window-bar{height:36px;display:flex;align-items:center;gap:10px;padding-left:12px;background:#050606;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;-webkit-app-region:drag;user-select:none}
+#window-bar{height:36px;display:flex;align-items:center;gap:10px;padding-left:12px;background:#050606;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;user-select:none;touch-action:none}
 body:not(.view-only) #window-bar{box-shadow:inset 0 -2px 0 var(--amber)}
 .window-brand{display:flex;align-items:center;gap:8px;font:700 13px/1 var(--font);font-stretch:var(--narrow);letter-spacing:.16em;text-transform:uppercase;color:var(--cream);white-space:nowrap}
 .mode-pill{font:700 10px/1 var(--font);font-stretch:var(--narrow);letter-spacing:.16em;text-transform:uppercase;padding:4px 8px 3px;background:var(--amber);color:var(--amber-ink);white-space:nowrap}
 .view-only .mode-pill{background:transparent;color:var(--text-2);box-shadow:inset 0 0 0 1px var(--line-2)}
+/* The pill is the marker-mode switch: amber while marker mode is on, outlined otherwise */
+#window-bar .mode-pill{width:auto;height:auto;min-height:0;padding:4px 8px 3px;border:0;font:700 10px/1 var(--font);font-stretch:var(--narrow);letter-spacing:.16em;background:transparent;color:var(--text-2);box-shadow:inset 0 0 0 1px var(--line-2)}
+#window-bar .mode-pill:hover{background:var(--bg-3);color:var(--text)}
+.marking #window-bar .mode-pill{background:var(--amber);color:var(--amber-ink);box-shadow:none}
+.marking #window-bar .mode-pill:hover{background:var(--amber-hi);color:var(--amber-ink)}
+[data-mode=keyboard] #window-bar .mode-pill{color:var(--amber-hi);box-shadow:inset 0 0 0 1px var(--amber)}
 .window-shortcut{margin-left:auto;font-size:11px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .view-only .window-shortcut{color:var(--amber-hi)}
-#window-bar button{-webkit-app-region:no-drag;flex:none;width:40px;height:35px;min-height:0;padding:0;border:0;background:transparent;color:var(--text-2)}
+#window-bar button{flex:none;width:40px;height:35px;min-height:0;padding:0;border:0;background:transparent;color:var(--text-2)}
 #window-bar button svg{width:17px;height:17px}
 #window-bar button:hover{background:var(--bg-3);color:var(--text)}
 #window-bar #quit-overlay:hover{background:#b3261e;color:#fff}
@@ -69,6 +75,22 @@ body:not(.view-only) #window-bar{box-shadow:inset 0 -2px 0 var(--amber)}
 #window-bar .update-pill:disabled{opacity:1;cursor:default}
 #window-bar .update-pill.ready{border-color:var(--amber);background:var(--amber);color:var(--amber-ink)}
 #window-bar .update-pill.ready:hover{background:var(--amber-hi);border-color:var(--amber-hi);color:var(--amber-ink)}
+
+/* Edges of the desktop window: the page resizes it. Windows' own 5 px frame does nothing while the window has no
+   keyboard, so the grips reach further in */
+.resize-grip{display:none;position:fixed;z-index:80;touch-action:none}
+.desktop .resize-grip{display:block}
+.resize-grip[data-resize=w]{left:0;top:36px;bottom:16px;width:10px;cursor:ew-resize}
+.resize-grip[data-resize=e]{right:0;top:36px;bottom:16px;width:10px;cursor:ew-resize}
+.resize-grip[data-resize=s]{left:16px;right:16px;bottom:0;height:10px;cursor:ns-resize}
+.resize-grip[data-resize=sw]{left:0;bottom:0;width:16px;height:16px;cursor:nesw-resize}
+.resize-grip[data-resize=se]{right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize}
+
+/* A <select>'s list drawn by the page: the desktop window has no keyboard for a native one */
+.select-list{position:fixed;z-index:60;display:flex;flex-direction:column;overflow-y:auto;padding:3px 0;background:var(--bg-2);border:1px solid var(--amber);box-shadow:0 8px 24px rgba(0,0,0,.55)}
+.select-list button{flex:none;justify-content:flex-start;min-height:28px;padding:0 12px;border:0;background:transparent;font-size:12px;letter-spacing:.04em;text-transform:none;white-space:nowrap}
+.select-list button:hover{background:var(--bg-3)}
+.select-list button[aria-selected=true]{color:var(--amber-hi)}
 
 /* Page frame */
 main{max-width:1320px;margin:0 auto;padding:0 24px 24px}

@@ -131,7 +131,7 @@ const {coordToMap,mapToCoord}=require('../dist/maps.js');
     await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1080,850));await page.waitForFunction(()=>!document.body.classList.contains('compact-map'));
     await page.locator('#calculator-tab').click();await page.locator('#player').fill('x25, y20');await page.locator('#maps-tab').click();
     await page.locator('.target-select').first().click();assert.equal(await page.locator('#hit').inputValue(),'');assert.equal(await page.locator('#distance').inputValue(),'1500.00');
-    await page.locator('#view-overlay').click();await page.waitForFunction(()=>document.body.classList.contains('view-only'));
+    await page.evaluate(()=>window.overlay.view());await page.waitForFunction(()=>document.body.classList.contains('view-only'));
     assert.equal(await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isVisible()),true);
     assert.equal(await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isFocusable()),false);
     assert.deepEqual(errors,[]);console.log('PASS: offline maps, coordinates/grid, map click, zoom, multiple goals, per-goal and chained corrections, pin click to select then remove, own pin click removes the position, Delete/undo, layout-independent hotkeys, map switching, validation and non-focusable view mode.');

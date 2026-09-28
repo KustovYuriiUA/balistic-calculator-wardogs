@@ -246,7 +246,11 @@ if(typeof document!=='undefined'){
     render();
   }
   $('open-correction').onclick=()=>changeTab(false);
-  $('place-coordinate').onclick=()=>{try{place(parseCoordinate($('map-coordinate').value));}catch(e){$('map-error').textContent=e.message;}};
+  // An empty field takes the coordinates from the clipboard: no need to click into it (and take the keyboard from the game).
+  $('place-coordinate').onclick=async()=>{
+    if(!$('map-coordinate').value.trim()&&window.overlay?.pasteText)$('map-coordinate').value=(await window.overlay.pasteText().catch(()=>'')).trim();
+    try{place(parseCoordinate($('map-coordinate').value));}catch(e){$('map-error').textContent=e.message;}
+  };
   $('map-coordinate').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('place-coordinate').click();}});
   $('terrain-select').onchange=()=>switchPreset(()=>{world=$('terrain-select').value;$('terrain-image').setAttribute('href',`maps/${world}.webp`);});
   // Panning keeps the pin scale, so only the grid labels follow; zoom redraws the markers.
@@ -287,23 +291,45 @@ if(typeof document!=='undefined'){
     switchPreset(()=>{world=map;$('terrain-select').value=map;$('terrain-image').setAttribute('href',`maps/${map}.webp`);selections.set(map,{region:z.rotation,zone:z.id});});
     toast('Карта игры: '+zoneTitle(key));
   }
+  // The game-map layer's state in the row above the solution, and the window bar's pill and hint (the pill switches
+  // marker mode). Every step shows: capture starting, map closed, map open and searching (with progress), found.
+  let gameMap={state:'no-area',marking:false};
+  const worldName=w=>[...$('terrain-select').options].find(o=>o.value===w)?.textContent||w;
   function showGameMap(s){
-    const title=s.key?zoneTitle(s.key):'',[state,lead,strong,tip]=
-      s.marking?['marking','Метки на карте игры · ','Insert или Esc — в игру','ЛКМ по карте игры ставит точку текущим инструментом, ПКМ — разрыв выбранной цели']:
-      s.state==='no-area'?['no-area','Карта игры: ','выбери область захвата','Открой карту в игре (M) и обведи её рамкой: оверлей узнает карту и покажет координаты под курсором']:
+    gameMap=s;
+    const title=s.key?zoneTitle(s.key):'',open=s.open===true?'Карта открыта · ':'Карта игры: ';
+    let [state,lead,strong,tip]=
+      s.state==='no-area'?['no-area','Карта игры: ','выбери область захвата','Открой карту в игре (M), нажми «Выбрать область захвата» и обведи карту рамкой']:
       s.state==='starting'?['starting','Карта игры: ','запускаю захват…','Слой подключается к захвату экрана и готовит офлайн-карты']:
-      s.state==='acquiring'?['acquiring','Карта игры: ','ищу по местности…','Сравниваю кадр карты игры с офлайн-картами: до секунды на каждую карту']:
+      s.state==='closed'?['closed','Карта игры закрыта · ','M — открыть','Оверлей узнаёт открытую карту игры по её рамке и сразу рисует на ней точки']:
       s.state==='searching'?['searching','Карта игры: жду карту ','M','Слой смотрит на выбранную область: ищет круг зоны или знакомую местность']:
+      s.state==='acquiring'?['acquiring',open,`ищу по местности · ${Math.round((s.progress||0)*100)} %`,'Сравниваю карту игры со всеми офлайн-картами сразу']:
+      s.state==='open'&&s.failed?['weak',open,'не узнана — отдали её до круга зоны','Ни круг зоны, ни местность не найдены: отдали карту колесом, чтобы круг зоны был виден']:
+      s.state==='open'?['acquiring',open,'ищу круг зоны…','Сначала круг зоны, через мгновение — поиск по местности']:
       s.state==='error'?['error','Карта игры: ',s.message||'ошибка захвата','']:
       s.state==='weak'?['weak','Круг виден частично — ','отдали карту','По короткой дуге круга масштаб неточный']:
-      s.source==='terrain'?['locked','Карта игры: ',([...$('terrain-select').options].find(o=>o.value===s.world)?.textContent||s.world)+' · по местности','Круга зоны не видно: положение и масштаб карты найдены по местности. Insert — метки']:
+      s.source==='terrain'?['locked','Карта игры: ',worldName(s.world)+' · по местности','Круга зоны не видно: положение и масштаб карты найдены по местности']:
       s.recognised?['locked','Карта игры: ',title,'Карта и зона распознаны по снимку']:
       ['guess','Зона по выбору: ',title,'Зону не удалось распознать по снимку. Проверь карту, регион и зону'];
+    // Marker mode: on the found map the clicks become points; before that it waits for the map.
+    if(s.marking&&s.calibrated)[state,lead,strong,tip]=['marking','Метки · ','ЛКМ по карте игры — точка, ПКМ — разрыв',`${title||worldName(s.world)}. Инструмент и цель выбираются здесь, в окне. Insert — выключить`];
+    else if(s.marking)lead='Метки вкл · '+lead;
     const text=$('game-map-status'),b=document.createElement('b');b.textContent=strong;
     $('game-map').dataset.state=state;text.replaceChildren(lead,b);
     text.title=tip+(s.metresPerPixel?` · 1 px ≈ ${display(s.metresPerPixel)} м`:'');
     $('pick-area').querySelector('.long').textContent=s.state==='no-area'?'Выбрать область захвата':'Сменить область захвата';
     if(s.recognised&&s.key)followGameZone(s.key);
+    windowBar();
+  }
+  function windowBar(){
+    if(!window.overlay)return;
+    const s=gameMap,mode=document.body.dataset.mode,keys=(...k)=>k.map(x=>`<kbd>${x}</kbd>`).join(' ');
+    const [pill,hint]=mode==='keyboard'?['Клавиатура','Клик по игре вернёт ей клавиатуру и звук']:
+      s.marking?['Метки',s.calibrated?`${keys('ЛКМ')} точка · ${keys('ПКМ')} разрыв · ${keys('Insert')} выкл`:s.state==='no-area'?`Выбери область захвата · ${keys('Insert')} выкл`:s.state==='closed'||s.state==='searching'?`Открой карту в игре ${keys('M')} · ${keys('Insert')} выкл`:`Ищу карту игры… · ${keys('Insert')} выкл`]:
+      mode==='edit'?['Карта',`${keys('Insert')} — метки на карте игры`]:
+      ['Просмотр',`${keys('Insert')} — метки и клики`];
+    document.body.classList.toggle('marking',Boolean(s.marking));
+    $('overlay-mode').textContent=pill;$('overlay-hint').innerHTML=hint;
   }
   if(window.overlay?.gameMap){$('game-map').hidden=false;$('pick-area').hidden=false;$('pick-area').onclick=()=>window.overlay.gameMap.pick();window.overlay.gameMap.onStatus(showGameMap);window.overlay.gameMap.onNotice?.(text=>toast(text));reportZone();}
   // Top-left menu (desktop): the overlay's own map is optional (the points, solution and list stay), and the poll
@@ -324,7 +350,7 @@ if(typeof document!=='undefined'){
     document.querySelectorAll('[data-fps]').forEach(b=>b.onclick=()=>pollRate(Number(b.dataset.fps)));
     $('menu-pick-area').onclick=()=>{open(false);window.overlay.gameMap.pick();};
     $('menu-snapshot').onclick=()=>{open(false);if($('game-map').dataset.state==='no-area'){toast('Сначала выбери область карты игры');return;}window.overlay.gameMap.snapshot();toast('Снимок карты игры: откроется папка с файлами');};
-    window.overlay.onMode(()=>open(false));
+    window.overlay.onMode(()=>{open(false);windowBar();});
   }
   $('toggle-map').onclick=()=>showMap(document.body.classList.contains('map-hidden'));
   // Compact desktop window: its height follows the content (viewing shows less than editing), within the screen.
@@ -337,7 +363,7 @@ if(typeof document!=='undefined'){
   fontScale(FONT_SCALES.includes(ui.fontScale)?ui.fontScale:1);
   showMap(ui.showMap!==false);pollRate(POLL_RATES.includes(ui.pollFps)?ui.pollFps:60);
   // Physical key codes: hotkeys work on the Russian layout too.
-  // Returns true when the key did something; the game-map layer forwards its keys here too.
+  // Returns true when the key did something.
   function hotkey(code,ctrl){
     const tools={KeyG:'player',KeyT:'target',KeyH:'hit'};
     if(ctrl){if(code==='KeyZ'){undo();return true;}return false;}
@@ -363,6 +389,5 @@ if(typeof document!=='undefined'){
     if(button==='right'){const previous=tool;tool='hit';place({x,y});tool=previous;renderBrief();reportScene();}
     else place({x,y});
   });
-  window.overlay?.gameMap?.onKey?.(({code,ctrl})=>hotkey(code,ctrl));
   reportScene();
 }

@@ -12,9 +12,9 @@
 <div id="window-bar" hidden>
   <button id="menu-button" class="menu-button" type="button" title="Меню" aria-label="Меню" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2"/></svg></button>
   <span class="window-brand" id="window-brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5 2.5 4.8v6.4c0 5.6 4 10.1 9.5 11.3 5.5-1.2 9.5-5.7 9.5-11.3V4.8z" fill="#e7b324"/><circle cx="12" cy="11.6" r="4.3" fill="none" stroke="#141310" stroke-width="2"/><path d="M12 4.8v3.4M12 15v3.4M5.2 11.6h3.4M15.4 11.6h3.4" stroke="#141310" stroke-width="2"/></svg>Точный бросок</span>
-  <span class="mode-pill" id="overlay-mode">Просмотр</span>
-  <span class="window-shortcut" id="overlay-hint"><kbd>Insert</kbd> редактировать</span>
-  <button id="update-pill" class="update-pill" type="button" hidden></button><button id="view-overlay" type="button" title="В игру: окно остаётся видно, клики проходят сквозь него · Esc" aria-label="Режим просмотра"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg></button><button id="hide-overlay" type="button" title="Скрыть окно · Insert вернёт его" aria-label="Скрыть оверлей"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12" stroke="currentColor" stroke-width="2"/></svg></button><button id="quit-overlay" type="button" title="Закрыть приложение" aria-label="Закрыть приложение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2"/></svg></button>
+  <button id="overlay-mode" class="mode-pill" type="button" title="Метки на карте игры: включить или выключить · Insert">Просмотр</button>
+  <span class="window-shortcut" id="overlay-hint"><kbd>Insert</kbd> — метки и клики</span>
+  <button id="update-pill" class="update-pill" type="button" hidden></button><button id="hide-overlay" type="button" title="Скрыть окно · Insert вернёт его" aria-label="Скрыть оверлей"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12" stroke="currentColor" stroke-width="2"/></svg></button><button id="quit-overlay" type="button" title="Закрыть приложение" aria-label="Закрыть приложение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2"/></svg></button>
 </div>
 <div id="app-menu" class="app-menu" role="menu" aria-label="Меню" hidden>
   <label class="menu-check"><input id="menu-show-map" type="checkbox" checked>Карта в окне оверлея</label>
@@ -63,7 +63,7 @@
         <div class="map-entry">
           <div class="entry-head"><h2>Моя позиция</h2><p id="map-player-label" class="unset">не задана</p></div>
           <label for="map-coordinate" id="map-coordinate-label">Вставить координаты → моя позиция</label>
-          <div class="entry-row"><input id="map-coordinate" placeholder="x95.90, y109.42" autocomplete="off" spellcheck="false"><button id="place-coordinate" type="button" class="primary" title="Поставить точку · Enter">↵ Позиция</button></div>
+          <div class="entry-row"><input id="map-coordinate" placeholder="x95.90, y109.42" autocomplete="off" spellcheck="false"><button id="place-coordinate" type="button" class="primary" title="Поставить точку · Enter. С пустым полем — координаты из буфера обмена">↵ Позиция</button></div>
         </div>
 
         <h2 class="target-heading">Цели <span id="target-count">0</span><small id="preset-status" title="Отдельное автосохранение для каждой карты, региона со спавнами и центральной зоны">Автосохранение</small></h2>
@@ -108,5 +108,6 @@
     </section>
   </div>
 </main>
+<div class="resize-grip" data-resize="w"></div><div class="resize-grip" data-resize="e"></div><div class="resize-grip" data-resize="s"></div><div class="resize-grip" data-resize="sw"></div><div class="resize-grip" data-resize="se"></div>
 <div id="toast" class="toast" role="status" hidden><span id="toast-text"></span><button id="toast-undo" type="button">Вернуть <kbd>Ctrl+Z</kbd></button></div>
 </body></html>

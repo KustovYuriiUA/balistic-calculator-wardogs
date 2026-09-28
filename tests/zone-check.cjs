@@ -101,6 +101,13 @@ app.whenReady().then(async()=>{
     assert.ok(p&&Math.abs(p.x+x0-expect[0])<=2&&Math.abs(p.y+y0-expect[1])<=3&&Math.abs(p.width-expect[2])<=4&&Math.abs(p.height-expect[3])<=4,label+': panel');
   }
   assert.equal(Z.findMapPanel(crop(shot,190,120,840,840)),null,'an area inside the panel has no panel');
+  // Open or closed from the fitted area's edges: the frame on the panel, not on rects inside the map or in the world.
+  const edgeShares=rect=>Z.edgeStrips(rect,8).map(s=>Z.lineShare(crop(shot,s.x,s.y,s.width,s.height),s.vertical));
+  const onPanel=edgeShares({x:172,y:97,width:876,height:878});
+  report.push(`map frame on the panel: ${onPanel.map(v=>v.toFixed(2)).join(' ')}`);
+  assert.ok(Z.panelOpen(onPanel)&&onPanel.every(v=>v>=.9),'the open map shows its frame on every side');
+  for(const d of [20,40,60]){const inside=edgeShares({x:172+d,y:97+d,width:876-2*d,height:878-2*d});report.push(`${d} px inside: ${inside.map(v=>v.toFixed(2)).join(' ')}`);assert.equal(Z.panelOpen(inside),false,`no frame ${d} px inside the panel`);}
+  assert.equal(Z.panelOpen(edgeShares({x:10,y:20,width:150,height:150})),false,'no frame in the 3D world');
   // Another colour: the same rim turned red, blue and yellow is found the same.
   for(const [name,swap]of [['red',(r,g,b)=>[g,r,b]],['blue',(r,g,b)=>[r,b,g]],['yellow',(r,g,b)=>[g,g,r]]]){
     const d=Uint8ClampedArray.from(full.data);for(let i=0;i<d.length;i+=4)d.set(swap(d[i],d[i+1],d[i+2]),i);
@@ -109,6 +116,6 @@ app.whenReady().then(async()=>{
     assert.ok(ring&&Math.abs(ring.r-RIM_NA)<1.5&&Math.abs(ring.cx+area.x-586.5)<1.5,name+' rim geometry');
   }
   console.log(report.join('\n'));
-  console.log('PASS: rim found on both screenshots, at screen size and after I420, in any colour; scale equal to the axis labels; grid lines within 2–3.5 m; both zones recognised; quarter arc flagged weak; no rim on the game world.');
+  console.log('PASS: rim found on both screenshots, at screen size and after I420, in any colour; scale equal to the axis labels; grid lines within 2–3.5 m; both zones recognised; quarter arc flagged weak; no rim on the game world; the open map frame found on the fitted area edges and nowhere else.');
   app.quit();
 }).catch(error=>{console.error(error);app.exit(1);});

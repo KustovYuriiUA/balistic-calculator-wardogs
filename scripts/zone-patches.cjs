@@ -2,12 +2,13 @@
 // Builds the data the game-map layer matches the in-game map against, from the offline maps:
 // - dist/zone-patches.js: the luminance of every control zone's bounding square, to recognise map and zone
 //   from the circle interior;
-// - dist/maps/terrain-<map>.png: the whole map's luminance at 512² (32 m/px, grey), for the wide terrain search;
+// - dist/maps/terrain-<map>.png: the whole map's luminance at 1024² (16 m/px, grey), for the wide terrain search
+//   (512² is too coarse to tell a map for sure: the right one led by 0.10–0.14 there, by 0.37–0.50 at 1024²);
 //   decoding and shrinking the 5120² WebP at start-up took ~0.7 s per map.
 // Needs Electron to decode WebP: pnpm zone-patches (rerun after changing maps or landmarks-data.js).
 const {app,BrowserWindow}=require('electron');
 const fs=require('node:fs'),path=require('node:path');
-const root=path.resolve(__dirname,'..'),SIZE=64,TERRAIN_SIZE=512,WORLD=163.84;
+const root=path.resolve(__dirname,'..'),SIZE=64,TERRAIN_SIZE=1024,WORLD=163.84;
 app.setPath('userData',path.join(root,'.test-output','zone-patches-profile'));
 const MAP_LANDMARKS=new Function(fs.readFileSync(path.join(root,'dist','landmarks-data.js'),'utf8')+';return MAP_LANDMARKS;')();
 

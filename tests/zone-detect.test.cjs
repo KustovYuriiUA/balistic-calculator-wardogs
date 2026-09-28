@@ -64,6 +64,17 @@ test('Map panel inside a loosely drawn area: the square with unbroken sides, not
   const inside={width:300,height:300,data:new Uint8ClampedArray(300*300*4)};
   for(let y=0;y<300;y++)inside.data.set(img.data.subarray(((P.y+50+y)*w+P.x+50)*4,((P.y+50+y)*w+P.x+350)*4),y*300*4);
   assert.equal(Z.findMapPanel(inside),null,'an area drawn inside the panel has no panel edges');
+  // Open or closed, from strips across the fitted area's edges: the frame on all four sides, or on three when an icon
+  // covers one; not when the panel is gone (the world behind a closed map). The real screenshot: tests/zone-check.cjs.
+  const shares=(image,rect,m=6)=>Z.edgeStrips(rect,m).map(s=>{const strip={width:s.width,height:s.height,data:new Uint8ClampedArray(s.width*s.height*4)};for(let y=0;y<s.height;y++)strip.data.set(image.data.subarray(((s.y+y)*w+s.x)*4,((s.y+y)*w+s.x+s.width)*4),y*s.width*4);return Z.lineShare(strip,s.vertical);});
+  const fitted={x:P.x,y:P.y,width:P.size,height:P.size},open=shares(img,fitted);
+  assert.ok(open.every(v=>v>=.95)&&Z.panelOpen(open),JSON.stringify(open));
+  paint(img,P.x-8,P.y+50,24,300,[20,20,20]);// a big icon over most of the left side
+  const covered=shares(img,fitted);
+  assert.ok(covered[0]<.6&&Z.panelOpen(covered),JSON.stringify(covered));
+  const world={width:w,height:h,data:new Uint8ClampedArray(w*h*4)};for(let i=0;i<w*h;i++){world.data.set([150+Math.round(rnd()*10),150,150,255],i*4);}
+  for(let x=0;x<w;x++)world.data.set([90,90,90,255],((P.y+P.size)*w+x)*4);// a horizon just where the bottom edge was
+  assert.equal(Z.panelOpen(shares(world,fitted)),false,'one straight line in the world is not the frame');
 });
 test('Circle fits: algebraic on exact points, geometric refinement on a noisy short arc',()=>{
   const pts=[];for(let a=0;a<360;a+=7)pts.push(40+25*Math.cos(a*Math.PI/180),-12+25*Math.sin(a*Math.PI/180));
