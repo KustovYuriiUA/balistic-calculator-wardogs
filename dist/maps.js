@@ -42,7 +42,9 @@ if(typeof document!=='undefined'){
           ids.add(t.id);const hit=str(t.hit);
           targets.push({id:t.id,point:{x:t.point.x,y:t.point.y},distance:str(t.distance),hit,previousAim:str(t.previousAim),origin:typeof t.origin==='string'?t.origin:null,shots:Number.isSafeInteger(t.shots)&&t.shots>=0&&t.shots<1e4?t.shots:hit?1:0});
         }
-        worlds.set(key,{player:point(value.player)?{x:value.player.x,y:value.player.y}:null,targets,selected:ids.has(value.selected)?value.selected:targets[0]?.id??null,next:Math.max(1,...targets.map(t=>t.id+1),Number.isSafeInteger(value.next)?value.next:1)});
+        // Presets saved with gaps in the numbering (before renumbering existed) come back numbered 1…n.
+        const preset={player:point(value.player)?{x:value.player.x,y:value.player.y}:null,targets,selected:ids.has(value.selected)?value.selected:targets[0]?.id??null,next:1};
+        renumber(preset);worlds.set(key,preset);
       }
       if(MAP_LANDMARKS[data.world])world=data.world;
     }catch{$('preset-status').textContent='Ошибка чтения';$('preset-status').classList.add('error');$('preset-status').title='Не удалось прочитать сохранения пресетов.';}
@@ -50,7 +52,7 @@ if(typeof document!=='undefined'){
   function switchPreset(change){
     saveForm();persistPresets();change();landmarkControls();
     $('map-coordinate').value='';$('map-error').textContent='';$('toast').hidden=true;
-    setTool(state().player?'target':'player');loadSelected();fitRegion();persistPresets();
+    setTool(state().player?'target':'player');loadSelected();fitRegion();persistPresets();reportZone();
   }
   function landmarkSelection(){if(!selections.has(world)){const data=MAP_LANDMARKS[world];const rotation=data.rotations.find(r=>data.zones.some(z=>z.rotation===r.id))||data.rotations[0];selections.set(world,{region:rotation.id,zone:data.zones.find(z=>z.rotation===rotation.id)?.id||''});}return selections.get(world);}
   function landmarkItems(){const data=MAP_LANDMARKS[world],choice=landmarkSelection(),region=data.rotations.find(r=>r.id===choice.region);return {bases:data.spawns.filter(b=>region.towns.includes(b.town)),zone:data.zones.find(z=>z.id===choice.zone)};}
@@ -58,6 +60,7 @@ if(typeof document!=='undefined'){
   const svgEl=(parent,tag,attrs)=>{const el=document.createElementNS(ns,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,v);parent.append(el);return el;};
   function drawLandmarks(unit){
     const {bases,zone}=landmarkItems(),layer=$('terrain-landmarks');layer.replaceChildren();
+    $('fit-zone').disabled=!zone;
     if(zone){const x=zone.pos[0]*1000,y=zone.pos[1]*1000,r=zone.radiusM/16384*1000;svgEl(layer,'circle',{class:'control-zone',cx:x,cy:y,r,fill:'#fff2dd14',stroke:'#fff2dd','stroke-width':1.5,'stroke-dasharray':'6 4','vector-effect':'non-scaling-stroke'});svgEl(layer,'text',{x,y:y-r-6*unit,'text-anchor':'middle','font-size':12*unit,'stroke-width':3*unit,class:'landmark-label'}).textContent='Зона · '+zone.radiusM+' м';}
     for(const b of bases){const x=b.pos[0]*1000,y=b.pos[1]*1000,color={manticore:'#57c05f',valkyra:'#ef5a4f',lonestar:'#4d9be0'}[b.faction];const g=svgEl(layer,'g',{class:'spawn-base','data-town':b.town});svgEl(g,'circle',{cx:x,cy:y,r:11*unit,fill:'#08090a',stroke:color,'stroke-width':2,'vector-effect':'non-scaling-stroke'});svgEl(g,'text',{x,y:y+4.5*unit,'text-anchor':'middle',fill:color,'font-size':13*unit,'font-weight':'bold','font-family':'Bahnschrift, sans-serif'}).textContent=b.faction[0].toUpperCase();svgEl(g,'text',{x,y:y+25*unit,'text-anchor':'middle','font-size':12*unit,'stroke-width':3*unit,class:'landmark-label'}).textContent=b.town;}
   }
@@ -70,7 +73,9 @@ if(typeof document!=='undefined'){
     for(let c=Math.max(step,Math.ceil(y0/step)*step);c<Math.min(y1,MAP_EXTENT);c+=step){const y=(1-c/MAP_EXTENT)*1000,major=c%10===0?'major':'';svgEl(layer,'line',{x1:0,y1:y,x2:1000,y2:y,class:major});if(y-view.y>24*unit)svgEl(layer,'text',{x:view.x+4*unit,y:y-3*unit,'font-size':10*unit,'stroke-width':3*unit}).textContent=c;}
   }
   function fitRegion(){const {bases,zone}=landmarkItems();const pts=bases.map(b=>({x:b.pos[0]*1000,y:b.pos[1]*1000}));if(zone){const r=zone.radiusM/16384*1000;pts.push({x:zone.pos[0]*1000-r,y:zone.pos[1]*1000-r},{x:zone.pos[0]*1000+r,y:zone.pos[1]*1000+r});}if(!pts.length)return;const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y),size=Math.min(1000,Math.max(150,Math.max(Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys))*1.25));view={x:(Math.min(...xs)+Math.max(...xs)-size)/2,y:(Math.min(...ys)+Math.max(...ys)-size)/2,size};updateView();}
-  $('fit-region').onclick=fitRegion;$('region-select').onchange=()=>switchPreset(()=>{landmarkSelection().region=$('region-select').value;});$('zone-select').onchange=()=>switchPreset(()=>{landmarkSelection().zone=$('zone-select').value;});
+  // The zone's circle filling the map with a margin; nothing to show when the region has no zone data.
+  function fitZone(){const {zone}=landmarkItems();if(!zone)return;const r=zone.radiusM/16384*1000,size=Math.max(40,r*2.6);view={x:zone.pos[0]*1000-size/2,y:zone.pos[1]*1000-size/2,size};updateView();}
+  $('fit-zone').onclick=fitZone;$('fit-region').onclick=fitRegion;$('region-select').onchange=()=>switchPreset(()=>{landmarkSelection().region=$('region-select').value;});$('zone-select').onchange=()=>switchPreset(()=>{landmarkSelection().zone=$('zone-select').value;});
 
   // Undo: snapshots of the current preset before every change of points.
   function remember(){saveForm();const key=presetKey();if(!undoStacks.has(key))undoStacks.set(key,[]);const stack=undoStacks.get(key);stack.push(JSON.stringify(state()));if(stack.length>50)stack.shift();}
@@ -78,7 +83,9 @@ if(typeof document!=='undefined'){
   function toast(text,undoable=false){$('toast-text').textContent=text;$('toast-undo').hidden=!undoable;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{$('toast').hidden=true;},undoable?6000:2200);}
   $('toast-undo').onclick=undo;
 
-  function removeTarget(id){remember();const s=state();s.targets=s.targets.filter(t=>t.id!==id);if(s.selected===id)s.selected=s.targets[0]?.id??null;loadSelected();toast(`Цель ${id} удалена`,true);}
+  function removeTarget(id){remember();const s=state();s.targets=s.targets.filter(t=>t.id!==id);if(s.selected===id)s.selected=s.targets[0]?.id??null;renumber(s);loadSelected();toast(`Цель ${id} удалена`,true);}
+  // Numbers follow the list order: card N is hotkey N, and the next target gets the next free number.
+  function renumber(s){const ids=new Map(s.targets.map((t,i)=>[t.id,i+1]));for(const t of s.targets)t.id=ids.get(t.id);s.selected=ids.get(s.selected)??null;s.next=s.targets.length+1;}
   // First click selects a pin, a click on the selected pin removes it (Ctrl+Z brings it back).
   function markerClick(e,id){e.stopPropagation();if(state().selected===id)removeTarget(id);else choose(id);}
   // Clicking the own pin removes the position; targets stay, their impacts reset (Ctrl+Z restores).
@@ -163,6 +170,13 @@ if(typeof document!=='undefined'){
     else if(!t.hit)[step,text]=['3/3',`Выстрели с азимутом и дальностью цели ${t.id}, затем <b>ПКМ</b> по месту разрыва`];
     else [step,text,done]=['✓',`Поправка готова. Стреляй с новыми значениями, новый разрыв — снова <b>ПКМ</b>`,true];
     $('brief-step').hidden=!step;$('brief-step').textContent=step;$('map-brief').classList.toggle('done',done);$('map-help').innerHTML=text;
+    reportScene();
+  }
+  // What the game-map layer draws over the in-game map: the same pins, lines and label as this map, plus the next step.
+  function reportScene(){
+    const g=window.overlay?.gameMap;if(!g?.scene)return;
+    const s=state(),t=selected(),f=fire(t);let hit=null;if(t?.hit){try{hit=parseCoordinate(t.hit);}catch{}}
+    g.scene({tool,player:s.player,selected:t?.id??null,targets:s.targets.map(x=>({id:x.id,x:x.point.x,y:x.point.y})),hit:hit&&{x:hit.x,y:hit.y},aim:f?.corrected&&f.aim?{x:f.aim.x,y:f.aim.y}:null,label:t&&f&&!f.error?formatAzimuth(f.azimuth)+' · '+rangeText(f):'',hint:$('map-help').textContent});
   }
   function renderSolution(){
     const s=state(),t=selected(),f=fire(t),box=$('fire-solution'),meta=$('fs-meta'),valid=f&&!f.error;
@@ -175,7 +189,8 @@ if(typeof document!=='undefined'){
     if(!s.player)meta.textContent='Нет позиции. Инструмент «Я» (G) и ЛКМ по карте.';
     else if(!t)meta.textContent=s.targets.length?'Выбери цель в списке или на карте.':'Отметь цель на карте: инструмент «Цель» (T).';
     else if(!valid)meta.textContent='Проверь разрыв и дальность в ручном расчёте.';
-    else{add('до цели',metres(f.targetDistance));if(f.corrected){add('разрыв',metres(f.hitDistance));add('K','×'+display(f.coefficient),'aim');add('Δ аз',signed(f.delta),'aim');}}
+    // Before a correction the range above is the distance to the target: repeating it here only adds noise.
+    else if(f.corrected){add('до цели',metres(f.targetDistance));add('разрыв',metres(f.hitDistance));add('K','×'+display(f.coefficient),'aim');add('Δ аз',signed(f.delta),'aim');}
   }
   function renderList(){
     const s=state(),t=selected(),list=$('target-list');
@@ -191,13 +206,18 @@ if(typeof document!=='undefined'){
       const direction=span('target-azimuth',valid?formatAzimuth(f.azimuth):'—');direction.title='Азимут от своей позиции: 0° — север (+Y), 90° — восток (+X)';
       const power=span('target-power',valid?rangeText(f):'—');power.title=target.hit?'Дальность с поправкой':'Дальность до цели';
       const detail=document.createElement('span');detail.className='target-detail';
-      detail.append(span('card-coords',pointText(target.point)),span('card-range',s.player?'до цели '+metres(range(s.player,target.point)):'нет позиции'));
+      // The big range on the right is the distance to the target until an impact corrects it: only then repeat the distance here.
+      detail.append(span('card-coords',pointText(target.point)));
+      if(!s.player)detail.append(span('card-range','нет позиции'));else if(target.hit)detail.append(span('card-range','до цели '+metres(range(s.player,target.point))));
       if(target.hit&&valid){const k=span('target-coefficient','K ×'+display(f.coefficient));k.title='Коэффициент дальности этой цели';detail.append(k,span('card-shots','выстрел '+f.shots));}
       else if(target.hit)detail.append(span('card-error','проверь разрыв'));
       b.append(name,direction,power,detail);b.onclick=()=>choose(target.id);
       const remove=document.createElement('button');remove.type='button';remove.className='target-remove';remove.textContent='×';remove.title='Удалить · Del';remove.setAttribute('aria-label','Удалить цель '+target.id);remove.onclick=()=>removeTarget(target.id);
       row.append(b,remove);list.append(row);
     }
+    // Up to 10 targets are shown whole; more scroll. The compact window grows with its content up to that.
+    const rows=list.children,tenth=rows.length>10?rows[9].getBoundingClientRect().bottom-rows[0].getBoundingClientRect().top:0;
+    list.style.setProperty('--list-max',tenth>0?Math.ceil(tenth)+'px':'none');
     const activeRow=list.querySelector('.selected');if(activeRow&&list.scrollHeight>list.clientHeight){const rowBounds=activeRow.getBoundingClientRect(),listBounds=list.getBoundingClientRect();if(rowBounds.bottom>listBounds.bottom)list.scrollTop+=rowBounds.bottom-listBounds.bottom;else if(rowBounds.top<listBounds.top)list.scrollTop-=listBounds.top-rowBounds.top;}
   }
   function renderMap(){
@@ -249,21 +269,100 @@ if(typeof document!=='undefined'){
   $('shot-form').addEventListener('input',e=>{if(e.isTrusted)queueMicrotask(syncFromForm);});
   window.addEventListener('beforeunload',()=>{saveForm();persistPresets();});
   const narrow=matchMedia('(max-width: 760px)');let manualCompact=ui.compact===true;
-  function compactMode(){const enabled=narrow.matches||manualCompact;document.body.classList.toggle('compact-map',enabled);$('compact-toggle').setAttribute('aria-pressed',String(enabled));$('compact-toggle').textContent=narrow.matches?'Компактно · авто':manualCompact?'Полный вид':'Компактно';$('compact-toggle').disabled=narrow.matches;if(enabled)changeTab(true);requestAnimationFrame(renderMap);}
-  $('compact-toggle').onclick=()=>{manualCompact=!manualCompact;ui.compact=manualCompact;saveUi();compactMode();};narrow.addEventListener('change',compactMode);
-  changeTab(ui.tab!=='calc');compactMode();
+  // «Компактно» also shrinks the desktop window and «Полный вид» restores it; a window narrowed by hand turns compact by itself.
+  function compactMode(){const enabled=narrow.matches||manualCompact;document.body.classList.toggle('compact-map',enabled);document.body.classList.toggle('fit-height',Boolean(window.overlay)&&manualCompact);$('compact-toggle').setAttribute('aria-pressed',String(enabled));$('compact-toggle').textContent=manualCompact?'Полный вид':narrow.matches?'Компактно · авто':'Компактно';$('compact-toggle').disabled=narrow.matches&&!manualCompact;if(enabled)changeTab(true);requestAnimationFrame(renderMap);}
+  $('compact-toggle').onclick=()=>{manualCompact=!manualCompact;ui.compact=manualCompact;saveUi();window.overlay?.compact?.(manualCompact);compactMode();};narrow.addEventListener('change',compactMode);
+  changeTab(ui.tab!=='calc');compactMode();window.overlay?.compact?.(manualCompact);
   new ResizeObserver(()=>{requestAnimationFrame(renderMap);}).observe(svg);
+  // Game-map layer (desktop): it calibrates with the selected zone until it recognises the zone on the
+  // in-game map itself; a recognised zone then switches the map, region and zone here.
+  const zoneKey=()=>world+'/'+landmarkSelection().zone;
+  function reportZone(){window.overlay?.gameMap?.select(zoneKey());}
+  function zoneTitle(key){
+    const [map,id]=key.split('/'),data=MAP_LANDMARKS[map],z=data?.zones.find(z=>z.id===id);if(!z)return key;
+    return [[...$('terrain-select').options].find(o=>o.value===map)?.textContent||map,data.rotations.find(r=>r.id===z.rotation)?.name||z.rotation,z.name==='Default'?'Основная':z.name].join(' · ');
+  }
+  function followGameZone(key){
+    const [map,id]=key.split('/'),z=MAP_LANDMARKS[map]?.zones.find(z=>z.id===id);if(!z||key===zoneKey())return;
+    switchPreset(()=>{world=map;$('terrain-select').value=map;$('terrain-image').setAttribute('href',`maps/${map}.webp`);selections.set(map,{region:z.rotation,zone:z.id});});
+    toast('Карта игры: '+zoneTitle(key));
+  }
+  function showGameMap(s){
+    const title=s.key?zoneTitle(s.key):'',[state,lead,strong,tip]=
+      s.marking?['marking','Метки на карте игры · ','Insert или Esc — в игру','ЛКМ по карте игры ставит точку текущим инструментом, ПКМ — разрыв выбранной цели']:
+      s.state==='no-area'?['no-area','Карта игры: ','выбери область захвата','Открой карту в игре (M) и обведи её рамкой: оверлей узнает карту и покажет координаты под курсором']:
+      s.state==='starting'?['starting','Карта игры: ','запускаю захват…','Слой подключается к захвату экрана и готовит офлайн-карты']:
+      s.state==='acquiring'?['acquiring','Карта игры: ','ищу по местности…','Сравниваю кадр карты игры с офлайн-картами: до секунды на каждую карту']:
+      s.state==='searching'?['searching','Карта игры: жду карту ','M','Слой смотрит на выбранную область: ищет круг зоны или знакомую местность']:
+      s.state==='error'?['error','Карта игры: ',s.message||'ошибка захвата','']:
+      s.state==='weak'?['weak','Круг виден частично — ','отдали карту','По короткой дуге круга масштаб неточный']:
+      s.source==='terrain'?['locked','Карта игры: ',([...$('terrain-select').options].find(o=>o.value===s.world)?.textContent||s.world)+' · по местности','Круга зоны не видно: положение и масштаб карты найдены по местности. Insert — метки']:
+      s.recognised?['locked','Карта игры: ',title,'Карта и зона распознаны по снимку']:
+      ['guess','Зона по выбору: ',title,'Зону не удалось распознать по снимку. Проверь карту, регион и зону'];
+    const text=$('game-map-status'),b=document.createElement('b');b.textContent=strong;
+    $('game-map').dataset.state=state;text.replaceChildren(lead,b);
+    text.title=tip+(s.metresPerPixel?` · 1 px ≈ ${display(s.metresPerPixel)} м`:'');
+    $('pick-area').querySelector('.long').textContent=s.state==='no-area'?'Выбрать область захвата':'Сменить область захвата';
+    if(s.recognised&&s.key)followGameZone(s.key);
+  }
+  if(window.overlay?.gameMap){$('game-map').hidden=false;$('pick-area').hidden=false;$('pick-area').onclick=()=>window.overlay.gameMap.pick();window.overlay.gameMap.onStatus(showGameMap);window.overlay.gameMap.onNotice?.(text=>toast(text));reportZone();}
+  // Top-left menu (desktop): the overlay's own map is optional (the points, solution and list stay), and the poll
+  // rate of the in-game map capture. Both are remembered.
+  const POLL_RATES=[15,30,60,120];
+  function showMap(on){
+    ui.showMap=on;saveUi();document.body.classList.toggle('map-hidden',!on);$('menu-show-map').checked=on;
+    const b=$('toggle-map');b.querySelector('.long').textContent=on?'Скрыть карту':'Показать карту';b.querySelector('.short').textContent=on?'Скрыть':'Показать';
+    b.title=on?'Скрыть карту в окне оверлея: останутся позиция, решение и цели':'Снова показать карту в окне оверлея';
+    if(on)requestAnimationFrame(renderMap);
+  }
+  function pollRate(fps){ui.pollFps=fps;saveUi();document.querySelectorAll('[data-fps]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.fps)===fps)));window.overlay?.gameMap?.settings?.({fps});}
+  if(window.overlay){
+    const menu=$('app-menu'),button=$('menu-button'),open=on=>{menu.hidden=!on;button.setAttribute('aria-expanded',String(on));};
+    button.onclick=e=>{e.stopPropagation();open(menu.hidden);};
+    document.addEventListener('click',e=>{if(!menu.hidden&&!menu.contains(e.target))open(false);});
+    $('menu-show-map').onchange=()=>showMap($('menu-show-map').checked);
+    document.querySelectorAll('[data-fps]').forEach(b=>b.onclick=()=>pollRate(Number(b.dataset.fps)));
+    $('menu-pick-area').onclick=()=>{open(false);window.overlay.gameMap.pick();};
+    $('menu-snapshot').onclick=()=>{open(false);if($('game-map').dataset.state==='no-area'){toast('Сначала выбери область карты игры');return;}window.overlay.gameMap.snapshot();toast('Снимок карты игры: откроется папка с файлами');};
+    window.overlay.onMode(()=>open(false));
+  }
+  $('toggle-map').onclick=()=>showMap(document.body.classList.contains('map-hidden'));
+  // Compact desktop window: its height follows the content (viewing shows less than editing), within the screen.
+  const fitWindow=()=>{if(document.body.classList.contains('fit-height'))window.overlay?.fitHeight?.(Math.ceil(document.querySelector('main').getBoundingClientRect().bottom+scrollY+8));};
+  new ResizeObserver(()=>requestAnimationFrame(fitWindow)).observe(document.querySelector('main'));
+  // Font size: the whole overlay window is scaled (page zoom), so text, controls and map stay in proportion.
+  const FONT_SCALES=[.9,1,1.15,1.3];
+  function fontScale(f){ui.fontScale=f;saveUi();document.querySelectorAll('[data-font]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.font)===f)));window.overlay?.zoom?.(f);}
+  document.querySelectorAll('[data-font]').forEach(b=>b.onclick=()=>fontScale(Number(b.dataset.font)));
+  fontScale(FONT_SCALES.includes(ui.fontScale)?ui.fontScale:1);
+  showMap(ui.showMap!==false);pollRate(POLL_RATES.includes(ui.pollFps)?ui.pollFps:60);
   // Physical key codes: hotkeys work on the Russian layout too.
+  // Returns true when the key did something; the game-map layer forwards its keys here too.
+  function hotkey(code,ctrl){
+    const tools={KeyG:'player',KeyT:'target',KeyH:'hit'};
+    if(ctrl){if(code==='KeyZ'){undo();return true;}return false;}
+    if(tools[code]){setTool(tools[code]);return true;}
+    if(/^(Digit|Numpad)[1-9]$/.test(code)){const t=state().targets[Number(code.slice(-1))-1];if(t){choose(t.id);return true;}return false;}
+    if(code==='Delete'){const t=selected();if(t){removeTarget(t.id);return true;}return false;}
+    if(code==='KeyF'){fitRegion();return true;}
+    if(code==='KeyZ'){fitZone();return true;}
+    if(code==='KeyR'){resetView();return true;}
+    if(code==='Equal'||code==='NumpadAdd'){zoom(.7);return true;}
+    if(code==='Minus'||code==='NumpadSubtract'){zoom(1/.7);return true;}
+    return false;
+  }
   document.addEventListener('keydown',e=>{
     if($('map-workspace').hidden||e.altKey||e.metaKey||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.target.isContentEditable)return;
-    const code=e.code,tools={KeyG:'player',KeyT:'target',KeyH:'hit'};
-    if(e.ctrlKey){if(code==='KeyZ'){e.preventDefault();undo();}return;}
-    if(tools[code]){e.preventDefault();setTool(tools[code]);}
-    else if(/^(Digit|Numpad)[1-9]$/.test(code)){const t=state().targets[Number(code.slice(-1))-1];if(t){e.preventDefault();choose(t.id);}}
-    else if(code==='Delete'){const t=selected();if(t){e.preventDefault();removeTarget(t.id);}}
-    else if(code==='KeyF'){e.preventDefault();fitRegion();}
-    else if(code==='KeyR'){e.preventDefault();resetView();}
-    else if(code==='Equal'||code==='NumpadAdd'){e.preventDefault();zoom(.7);}
-    else if(code==='Minus'||code==='NumpadSubtract'){e.preventDefault();zoom(1/.7);}
+    if(hotkey(e.code,e.ctrlKey))e.preventDefault();
   });
+  // Marker mode on the in-game map: the layer sends clicks in game units and pin hits; points land here as if placed on this map.
+  const noBubble={stopPropagation(){}};
+  window.overlay?.gameMap?.onClick?.(({x,y,button,pin})=>{
+    if(pin==='player'){removePlayer(noBubble);return;}
+    if(Number.isSafeInteger(pin)&&state().targets.some(t=>t.id===pin)){markerClick(noBubble,pin);return;}
+    if(button==='right'){const previous=tool;tool='hit';place({x,y});tool=previous;renderBrief();reportScene();}
+    else place({x,y});
+  });
+  window.overlay?.gameMap?.onKey?.(({code,ctrl})=>hotkey(code,ctrl));
+  reportScene();
 }

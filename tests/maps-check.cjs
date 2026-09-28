@@ -95,7 +95,9 @@ const {coordToMap,mapToCoord}=require('../dist/maps.js');
     assert.equal(await page.locator('.target-row').count(),2);
     assert.equal(await page.locator('#distance').inputValue(),'1500.00');
     assert.equal(await page.locator('#hit').inputValue(),'');
-    assert.match(await page.locator('.card-range').first().textContent(),/1.500/);
+    // Without an impact the big range is the distance to the target; the small "до цели" is not repeated.
+    assert.match(await page.locator('.target-power').first().textContent(),/1.500/);
+    assert.equal(await page.locator('.target-row').first().locator('.card-range').count(),0);
     await page.locator('.target-select').nth(1).click();
     assert.equal(await page.locator('#distance').inputValue(),'3041.38');
     await page.locator('[data-map-tool="player"]').click();await place('x20, y20');

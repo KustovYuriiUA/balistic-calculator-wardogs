@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Точный бросок — карта игры</title>
+  <link rel="stylesheet" href="layer.css">
+  <script src="landmarks-data.js" defer></script><script src="zone-patches.js" defer></script><script src="zone-detect.js" defer></script><script src="terrain-match.js" defer></script><script src="layer.js" defer></script>
+</head>
+<body class="layer">
+<svg id="scene" aria-hidden="true"><circle id="rim" hidden/><g id="marks"></g></svg>
+<div id="badge" class="badge" hidden><b id="badge-title"></b><span id="badge-note"></span></div>
+<output id="readout" class="readout" hidden></output>
+<div id="busy" class="busy" role="status" hidden><i aria-hidden="true"></i><span>Ищу карту игры…</span></div>
+</body></html>

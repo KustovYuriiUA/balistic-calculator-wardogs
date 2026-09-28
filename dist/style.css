@@ -127,6 +127,12 @@ form .primary span{font-size:18px;line-height:1}
 .readout-cell+.readout-cell{border-left:1px solid var(--line-2)}
 .readout output{display:block;font:700 clamp(28px,3.4vw,40px)/1.05 var(--font);font-stretch:var(--condensed);color:var(--amber-hi);overflow-wrap:anywhere}
 .readout small{display:block;margin-top:6px;font-size:11px;color:var(--text-3)}
+/* The azimuth leads: highlighted cell and bigger digits, the range in cream, so the two never blend. */
+.readout-cell.azimuth{background:var(--amber-soft);box-shadow:inset 3px 0 0 var(--amber)}
+.readout .azimuth .result-label{color:var(--amber-hi)}
+.readout .azimuth output{font-size:clamp(40px,5vw,58px);text-shadow:0 0 18px rgba(255,210,74,.28)}
+.readout .azimuth small{color:var(--text-2)}
+.readout .range output{color:var(--cream)}
 #distance-note{margin:10px 0 16px}
 .aim-line{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 #aim-value{font:600 20px/1.2 var(--font);color:var(--aim);letter-spacing:.02em}

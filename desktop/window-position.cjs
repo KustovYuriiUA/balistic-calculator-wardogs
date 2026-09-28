@@ -5,7 +5,7 @@ const path = require('node:path');
 function readPosition(file) {
   try {
     const position = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (Number.isSafeInteger(position.x) && Number.isSafeInteger(position.y)) return position;
+    if (Number.isSafeInteger(position.x) && Number.isSafeInteger(position.y)) return {x:position.x,y:position.y,compact:position.compact===true};
   } catch {}
   return null;
 }
@@ -23,7 +23,8 @@ function savePosition(file, position) {
   try {
     fs.mkdirSync(path.dirname(file), {recursive:true});
     const temporary = file+'.tmp';
-    fs.writeFileSync(temporary, JSON.stringify({x:position.x,y:position.y}));
+    // compact: the window was shrunk by the «Компактно» button, so the next start opens at the compact size.
+    fs.writeFileSync(temporary, JSON.stringify(position.compact?{x:position.x,y:position.y,compact:true}:{x:position.x,y:position.y}));
     fs.renameSync(temporary, file);
   } catch (error) {
     console.warn('Не удалось сохранить положение окна:', error.message);

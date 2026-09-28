@@ -1,6 +1,6 @@
 /* Map workspace. --chrome is the vertical space outside the square map. */
-#map-workspace{--chrome:176px;--panel-top:98px}
-body:not(.desktop) #map-workspace{--chrome:236px;--panel-top:150px}
+#map-workspace{--chrome:200px;--panel-top:98px}
+body:not(.desktop) #map-workspace{--chrome:260px;--panel-top:150px}
 .terrain-layout{display:flex;gap:12px;align-items:flex-start}
 .map-column{flex:0 1 max(280px,calc(100vh - var(--chrome)));min-width:0;display:flex;flex-direction:column;gap:8px}
 
@@ -48,6 +48,50 @@ body:not(.desktop) #map-workspace{--chrome:236px;--panel-top:150px}
 .select-field{display:flex;flex-direction:column;gap:4px;min-width:0}
 .select-field span{font:600 10px/1 var(--font);font-stretch:var(--narrow);letter-spacing:.16em;text-transform:uppercase;color:var(--text-3)}
 .select-field select{height:32px;padding:0 26px 0 9px;font-size:13px;background-color:var(--bg-1)}
+/* Top-left menu (desktop) */
+.app-menu{position:fixed;top:38px;left:6px;z-index:40;width:280px;display:flex;flex-direction:column;gap:2px;padding:6px;background:var(--bg-2);border:1px solid var(--line-2);box-shadow:0 10px 30px rgba(0,0,0,.55)}
+.menu-check{display:flex;align-items:center;gap:9px;min-height:32px;padding:0 8px;font-size:13px;color:var(--text);cursor:pointer}
+.menu-check input{width:15px;height:15px;margin:0;accent-color:var(--amber);cursor:pointer}
+.menu-check:hover,.app-menu .menu-item:hover{background:var(--bg-3)}
+.menu-group{display:flex;flex-direction:column;gap:6px;padding:6px 8px 8px}
+.menu-group>span{font-size:12px;color:var(--text-2)}
+.menu-segment{display:flex}
+.menu-segment button{flex:1;min-height:28px;padding:0;margin-left:-1px;font-size:12px}
+.menu-segment button:first-child{margin-left:0}
+.app-menu .menu-item{justify-content:flex-start;min-height:32px;padding:0 8px;border:0;background:transparent;font-size:12px;letter-spacing:.06em}
+.view-only .app-menu{display:none!important}
+/* Capture area and map toggle next to the tools; short labels in the compact window */
+.map-actions{flex:none;display:flex;gap:6px;margin-left:auto}
+.map-actions button{min-height:30px;padding:0 10px;font-size:11px;border-color:var(--line-2)}
+.map-actions .short{display:none}
+.compact-map .map-actions .long{display:none}
+.compact-map .map-actions .short{display:inline}
+.compact-map .map-actions button{padding:0 8px}
+.compact-map .map-tools kbd{display:none}/* the keys stay in the tooltips; tools and actions then fit one line */
+.compact-map .map-brief span{-webkit-line-clamp:1}
+/* The next-step hint gets its own line under the tools and actions */
+.map-tools-row{flex-wrap:wrap;row-gap:6px}
+.map-brief{order:3;flex-basis:100%}
+/* The overlay's own map is optional: hidden, the points, solution and list take the whole width */
+.map-hidden #terrain-frame,.map-hidden .statusbar{display:none}
+.map-hidden .terrain-layout{flex-direction:column;align-items:stretch}
+.map-hidden .map-column{flex:none;width:100%}
+.map-hidden .target-panel{flex:none;width:100%;max-width:none;max-height:none;overflow:visible}
+/* Game-map layer status (desktop): what the capture of the in-game map sees */
+.game-map{flex:none;display:flex;align-items:center;gap:8px;min-height:32px;padding-left:10px;background:var(--bg-1);border:1px solid var(--line);font-size:12px;color:var(--text-2)}
+.game-map p{flex:1 1 auto;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.game-map b{font-weight:600;color:var(--text)}
+.game-map-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--text-3)}
+.game-map[data-state=locked] .game-map-dot{background:var(--ok);box-shadow:0 0 0 3px rgba(127,216,138,.18)}
+.game-map[data-state=guess] .game-map-dot,.game-map[data-state=weak] .game-map-dot{background:var(--amber)}
+.game-map[data-state=error] .game-map-dot{background:var(--danger)}
+/* Work in progress (starting the capture, searching the terrain): the dot turns into a spinner */
+.game-map[data-state=starting] .game-map-dot,.game-map[data-state=acquiring] .game-map-dot{box-sizing:border-box;width:11px;height:11px;background:transparent;border:2px solid var(--amber);border-right-color:transparent;animation:game-map-spin .8s linear infinite}
+@keyframes game-map-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.game-map-dot{animation-duration:3s!important}}
+.game-map[data-state=marking]{border-color:var(--amber);color:var(--amber-hi)}
+.game-map[data-state=marking] .game-map-dot{background:var(--amber-hi);box-shadow:0 0 0 3px var(--amber-soft)}
+.game-map button{flex:none;min-height:30px;padding:0 10px;font-size:11px}
 
 .fire-solution{flex:none;container-type:inline-size;background:var(--bg-1);border:1px solid var(--line-2);padding:12px 14px}
 .panel-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;min-width:0}
@@ -122,7 +166,7 @@ body:not(.desktop) #map-workspace{--chrome:236px;--panel-top:150px}
 .compact-map .map-brief{flex-basis:160px;font-size:11px}
 .compact-map #terrain-frame{width:min(100%,max(160px,calc(100vh - var(--chrome))));margin:0 auto}
 .compact-map .target-panel{flex:none;width:100%;min-width:0;max-width:none;max-height:none;overflow:visible;gap:8px}
-.compact-map .match-bar{order:9}
+.compact-map .match-bar,.compact-map .game-map{order:9}
 .compact-map .fire-solution{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:5px 12px;padding:7px 10px}
 .compact-map .panel-head{margin:0;flex-direction:column;align-items:flex-start;gap:4px}
 .compact-map .panel-head h2{display:none}
@@ -141,14 +185,21 @@ body:not(.desktop) #map-workspace{--chrome:236px;--panel-top:150px}
 .compact-map .entry-row input{padding:5px 8px;font-size:13px}
 .compact-map .entry-row button{min-height:30px;font-size:11px}
 .compact-map #target-list{flex:none;max-height:clamp(64px,24vh,220px)}
+/* Compact window sized to its content (desktop «Компактно»): nothing depends on the window height, the map is as
+   wide as the window, and the list shows up to 10 targets (maps.js sets --list-max) before it scrolls. */
+.fit-height.compact-map #terrain-frame{width:100%}
+.fit-height.compact-map #target-list{max-height:var(--list-max,none)}
 .compact-map .target-select{padding:6px 8px;gap:2px 10px}
 .compact-map .target-azimuth,.compact-map .target-power{font-size:17px}
 .compact-map .statusbar{display:none}
 .compact-map .workspace{grid-template-columns:1fr}
+/* One column: the azimuth and range first, then the inputs, then the diagram (both grids use the same 14px gap) */
+.compact-map .workspace .results{display:contents}
+.compact-map .workspace .result-panel{order:-1}
 
 /* View mode (clicks pass through to the game): HUD only, no controls. */
 .view-only #map-workspace{--chrome:60px;--panel-top:58px;padding-top:10px}
 .view-only.compact-map #map-workspace{--chrome:258px}
-.view-only .view-tabs,.view-only .map-tools-row,.view-only .map-zoom,.view-only .map-readout,.view-only .match-bar,.view-only .map-entry,.view-only .fs-actions,.view-only .statusbar,.view-only .target-remove,.view-only #map-error,.view-only .toast{display:none!important}
+.view-only .view-tabs,.view-only .map-tools-row,.view-only .map-zoom,.view-only .map-readout,.view-only .match-bar,.view-only .map-entry,.view-only .fs-actions,.view-only .statusbar,.view-only .target-remove,.view-only #map-error,.view-only .toast,.view-only .game-map button{display:none!important}
 .view-only .target-row{grid-template-columns:minmax(0,1fr)}
 .view-only #terrain{cursor:default}

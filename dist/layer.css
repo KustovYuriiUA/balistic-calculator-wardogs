@@ -1,0 +1,48 @@
+/* Game-map layer and area picker: transparent windows over the game. Same tokens as style.css. */
+:root{--amber:#e7b324;--amber-hi:#ffd24a;--cream:#fff2dd;--ok:#7fd88a;--ink:#08090a;--font:Bahnschrift,'Barlow Semi Condensed','Barlow','Segoe UI',system-ui,sans-serif}
+html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:600 12px/1.2 var(--font);color:var(--cream);user-select:none}
+[hidden]{display:none!important}
+
+/* Layer: detected rim, zone badge, game coordinates under the cursor */
+#scene{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
+#rim{fill:none;stroke:var(--amber-hi);stroke-width:1.5;stroke-dasharray:6 5;stroke-opacity:.85}
+.weak #rim{stroke-dasharray:2 5}
+.badge{position:fixed;top:8px;left:50%;transform:translateX(-50%);display:flex;align-items:baseline;gap:8px;max-width:calc(100% - 24px);padding:5px 9px 4px;background:rgba(8,9,10,.82);border:1px solid rgba(231,179,36,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.04em}
+.badge b{color:var(--amber-hi);font-weight:700}
+.badge span{color:#b9c1c9;font-weight:500}
+.guess .badge{border-color:rgba(255,255,255,.3)}
+.guess .badge b{color:var(--cream)}
+/* The overlay's points over the in-game map: the same marks and colours as the overlay's own map */
+#marks line{stroke-linecap:round}
+#marks .ray{stroke:var(--cream);stroke-opacity:.5;stroke-width:1}
+#marks .ray.chosen{stroke:var(--amber-hi);stroke-opacity:1;stroke-width:2}
+#marks .miss{stroke:#ff6a3d;stroke-width:1.5;stroke-dasharray:4 3}
+#marks .aim{stroke:#c9a7ff;stroke-width:1.5;stroke-dasharray:6 5}
+#marks .halo{fill:none;stroke:var(--amber-hi);stroke-opacity:.7}
+.pin circle{fill:var(--ink);stroke:var(--cream);stroke-width:1.5}
+.pin text{fill:var(--cream);font:700 11px/1 var(--font);text-anchor:middle;dominant-baseline:central}
+.pin.chosen circle{stroke:var(--amber-hi)}.pin.chosen text{fill:var(--amber-hi)}
+.pin.me circle{fill:var(--cream);stroke:var(--ink)}.pin.me text{fill:#141310}
+.pin.aim-pin circle{stroke:#c9a7ff}.pin.aim-pin text{fill:#c9a7ff;font-size:17px}
+.pin.hit-pin circle{stroke:#ff6a3d}.pin.hit-pin text{fill:#ff6a3d;font-size:17px}
+.pin-label{fill:var(--amber-hi);font:700 12px/1 var(--font);paint-order:stroke;stroke:var(--ink);stroke-width:3;stroke-linejoin:round}
+/* Marker mode (Insert): the layer takes the mouse; a frame and a crosshair say so, pins become clickable */
+.marking{cursor:crosshair;background:rgba(0,0,0,.01);box-shadow:inset 0 0 0 2px var(--amber)}
+.marking #marks [data-pin]{pointer-events:auto;cursor:pointer}
+.marking #marks [data-pin]:hover circle{stroke-width:2.5}
+.marking .badge{border-color:var(--amber);background:rgba(20,17,6,.9)}
+/* Insert before the map was found: a search is running, shown in the middle of the in-game map */
+.busy{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:10px;padding:10px 16px;background:rgba(8,9,10,.88);border:1px solid var(--amber);font-size:15px;letter-spacing:.04em;color:var(--amber-hi)}
+.busy i{width:16px;height:16px;border:2px solid var(--amber);border-right-color:transparent;border-radius:50%;animation:busy-spin .8s linear infinite}
+@keyframes busy-spin{to{transform:rotate(360deg)}}
+.readout{position:fixed;padding:4px 7px 3px;background:rgba(8,9,10,.86);border:1px solid var(--amber);color:var(--amber-hi);font:700 13px/1 var(--font);font-variant-numeric:tabular-nums;letter-spacing:.04em;white-space:nowrap;pointer-events:none}
+
+/* Area picker: dim the screen, draw the rectangle of the in-game map panel */
+.picker{cursor:crosshair;background:rgba(0,0,0,.45)}
+.picker.dragging{background:rgba(0,0,0,.01)}
+.picker-hint{position:fixed;top:24px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 16px 9px;background:rgba(8,9,10,.92);border:1px solid var(--amber);text-align:center;pointer-events:none}
+.picker-hint b{font-size:15px;letter-spacing:.06em;color:var(--amber-hi)}
+.picker-hint span{font-weight:500;color:#d6dbe0}
+.picker-hint.error span{color:#ff9b93}
+.picker-rect{position:fixed;border:2px solid var(--amber-hi);box-shadow:0 0 0 100vmax rgba(0,0,0,.45);pointer-events:none}
+.picker-size{position:absolute;right:-2px;bottom:-24px;padding:3px 6px 2px;background:var(--amber);color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}

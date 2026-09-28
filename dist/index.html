@@ -10,10 +10,18 @@
 </head>
 <body>
 <div id="window-bar" hidden>
+  <button id="menu-button" class="menu-button" type="button" title="Меню" aria-label="Меню" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2"/></svg></button>
   <span class="window-brand" id="window-brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5 2.5 4.8v6.4c0 5.6 4 10.1 9.5 11.3 5.5-1.2 9.5-5.7 9.5-11.3V4.8z" fill="#e7b324"/><circle cx="12" cy="11.6" r="4.3" fill="none" stroke="#141310" stroke-width="2"/><path d="M12 4.8v3.4M12 15v3.4M5.2 11.6h3.4M15.4 11.6h3.4" stroke="#141310" stroke-width="2"/></svg>Точный бросок</span>
   <span class="mode-pill" id="overlay-mode">Просмотр</span>
   <span class="window-shortcut" id="overlay-hint"><kbd>Insert</kbd> редактировать</span>
   <button id="update-pill" class="update-pill" type="button" hidden></button><button id="view-overlay" type="button" title="В игру: окно остаётся видно, клики проходят сквозь него · Esc" aria-label="Режим просмотра"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg></button><button id="hide-overlay" type="button" title="Скрыть окно · Insert вернёт его" aria-label="Скрыть оверлей"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12" stroke="currentColor" stroke-width="2"/></svg></button><button id="quit-overlay" type="button" title="Закрыть приложение" aria-label="Закрыть приложение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="2"/></svg></button>
+</div>
+<div id="app-menu" class="app-menu" role="menu" aria-label="Меню" hidden>
+  <label class="menu-check"><input id="menu-show-map" type="checkbox" checked>Карта в окне оверлея</label>
+  <div class="menu-group"><span>Размер шрифта</span><div class="menu-segment" role="group" aria-label="Размер шрифта"><button type="button" data-font="0.9">90 %</button><button type="button" data-font="1">100 %</button><button type="button" data-font="1.15">115 %</button><button type="button" data-font="1.3">130 %</button></div></div>
+  <div class="menu-group"><span>Частота опроса карты игры, кадров/с</span><div class="menu-segment" role="group" aria-label="Кадров в секунду"><button type="button" data-fps="15">15</button><button type="button" data-fps="30">30</button><button type="button" data-fps="60">60</button><button type="button" data-fps="120">120</button></div></div>
+  <button type="button" id="menu-pick-area" class="menu-item" role="menuitem">Выбрать область карты игры…</button>
+  <button type="button" id="menu-snapshot" class="menu-item" role="menuitem" title="Сохраняет кадр карты игры и то, что оверлей на нём нашёл, в папку профиля — для разбора проблем">Снимок карты игры для отладки</button>
 </div>
 <main>
   <header class="site-header"><div class="brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5 2.5 4.8v6.4c0 5.6 4 10.1 9.5 11.3 5.5-1.2 9.5-5.7 9.5-11.3V4.8z" fill="#e7b324"/><circle cx="12" cy="11.6" r="4.3" fill="none" stroke="#141310" stroke-width="2"/><path d="M12 4.8v3.4M12 15v3.4M5.2 11.6h3.4M15.4 11.6h3.4" stroke="#141310" stroke-width="2"/></svg><span>Точный бросок</span><span class="brand-tag">Тактический оверлей</span></div><span class="scale">Азимут · Дальность · Поправка</span></header>
@@ -24,12 +32,12 @@
       <div class="map-column">
         <div class="map-tools-row">
           <div class="map-tools" role="group" aria-label="Что ставит ЛКМ на карте"><button type="button" data-map-tool="player" aria-pressed="true" title="Моя позиция · G"><i class="tool-icon me" aria-hidden="true"></i>Я<kbd>G</kbd></button><button type="button" data-map-tool="target" aria-pressed="false" title="Добавить цель · T"><i class="tool-icon goal" aria-hidden="true"></i>Цель<kbd>T</kbd></button><button type="button" data-map-tool="hit" aria-pressed="false" title="Разрыв выбранной цели · H или ПКМ по карте"><i class="tool-icon burst" aria-hidden="true"></i>Разрыв<kbd>H</kbd></button></div>
-          <p id="map-brief" class="map-brief" role="status"><b id="brief-step" hidden></b><span id="map-help"></span></p>
+          <p id="map-brief" class="map-brief" role="status"><b id="brief-step" hidden></b><span id="map-help"></span></p><div class="map-actions"><button id="pick-area" type="button" class="ghost" hidden title="Открой карту в игре (M) и обведи её рамкой"><span class="long">Выбрать область захвата</span><span class="short">Область</span></button><button id="toggle-map" type="button" class="ghost" title="Скрыть карту в окне оверлея: останутся позиция, решение и цели"><span class="long">Скрыть карту</span><span class="short">Скрыть</span></button></div>
         </div>
         <div id="terrain-frame" class="hud-frame">
           <svg id="terrain" viewBox="0 0 1000 1000" role="img" aria-label="Игровая карта. Выбери инструмент и нажми на карту."><image id="terrain-image" width="1000" height="1000" href="maps/kavkazi.webp"/><g id="terrain-grid" pointer-events="none"></g><g id="terrain-landmarks" pointer-events="none"></g><g id="terrain-markers"></g></svg>
           <output id="cursor-coords" class="map-readout">X — · Y —</output>
-          <div class="map-zoom" role="group" aria-label="Масштаб карты"><button id="fit-region" type="button" title="Базы региона в кадр · F" aria-label="Базы в кадр">Базы</button><button id="reset-map" type="button" title="Вся карта · R" aria-label="Вся карта">Вся</button><button id="zoom-out" type="button" title="Отдалить · −" aria-label="Отдалить карту">−</button><button id="zoom-in" type="button" title="Приблизить · +" aria-label="Приблизить карту">+</button></div>
+          <div class="map-zoom" role="group" aria-label="Масштаб карты"><button id="fit-zone" type="button" title="Круг зоны в кадр · Z" aria-label="Зона в кадр">Зона</button><button id="fit-region" type="button" title="Базы региона в кадр · F" aria-label="Базы в кадр">Базы</button><button id="reset-map" type="button" title="Вся карта · R" aria-label="Вся карта">Вся</button><button id="zoom-out" type="button" title="Отдалить · −" aria-label="Отдалить карту">−</button><button id="zoom-in" type="button" title="Приблизить · +" aria-label="Приблизить карту">+</button></div>
         </div>
         <p id="map-error" class="field-error" role="alert"></p>
       </div>
@@ -40,6 +48,7 @@
           <label class="select-field"><span>Регион</span><select id="region-select"></select></label>
           <label class="select-field"><span>Зона</span><select id="zone-select"></select></label>
         </div>
+        <div id="game-map" class="game-map" data-state="no-area" hidden><i class="game-map-dot" aria-hidden="true"></i><p id="game-map-status" role="status">Карта игры: запускаю захват…</p></div>
 
         <section id="fire-solution" class="fire-solution hud-frame" aria-labelledby="fs-title" aria-live="polite">
           <div class="panel-head"><h2 id="fs-title">Огневое решение</h2><span id="fs-target" class="fs-target">Цель —</span><span id="fs-tag" class="tag" hidden></span></div>
@@ -88,7 +97,7 @@
         <div class="section-title"><h2>Следующий выстрел</h2><span id="status" class="badge">Ждём координаты</span></div>
         <div id="empty"><div class="empty-mark" aria-hidden="true">⌖</div><h3>Сначала — дальность до цели</h3><p>Укажи свою позицию и цель, нажми Enter. Выстрели с рассчитанной дальностью, затем введи место разрыва для поправки.</p></div>
         <div id="result" hidden>
-          <div class="readout"><div class="readout-cell"><p class="result-label">Азимут</p><output id="aim-azimuth"></output><small>0° — север · 90° — восток</small></div><div class="readout-cell"><p class="result-label">Дальность</p><output id="distance-value"></output></div></div>
+          <div class="readout"><div class="readout-cell azimuth"><p class="result-label">Азимут</p><output id="aim-azimuth"></output><small>0° — север · 90° — восток</small></div><div class="readout-cell range"><p class="result-label">Дальность</p><output id="distance-value"></output></div></div>
           <p id="distance-note" class="hint"></p>
           <div class="aim-line"><div><p class="result-label">Точка прицеливания</p><output id="aim-value"></output></div><button type="button" class="ghost copy" id="copy" aria-label="Скопировать точку прицеливания">Копировать</button></div>
           <div class="stats"><div><span>До цели</span><strong id="target-distance"></strong></div><div><span>До разрыва</span><strong id="hit-distance"></strong></div><div><span>Коэффициент</span><strong id="coefficient"></strong></div></div>

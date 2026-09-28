@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Область карты игры</title>
+  <link rel="stylesheet" href="layer.css">
+  <script src="area-picker.js" defer></script>
+</head>
+<body class="picker">
+<div id="hint" class="picker-hint" role="status"><b>Обведи квадрат карты игры</b><span id="hint-text">Открой карту клавишей M и протяни рамку от угла до угла. Esc — отмена</span></div>
+<div id="rect" class="picker-rect" hidden><span id="size" class="picker-size"></span></div>
+</body></html>
