@@ -13,6 +13,7 @@ export interface TrayActions {
   hide: () => void
   pickArea: () => void
   snapshot: () => void
+  reportBug: () => void
   setLanguage: (language: Language) => void
   reveal: () => void
 }
@@ -74,6 +75,10 @@ export function createTray(icon: NativeImage, version: string, actions: TrayActi
       {
         label: t('menu.snapshot'),
         click: actions.snapshot,
+      },
+      {
+        label: t('menu.reportBug'),
+        click: actions.reportBug,
       },
       {
         label: t('bar.language'),

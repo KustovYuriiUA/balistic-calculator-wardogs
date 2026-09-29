@@ -30,6 +30,8 @@ export const en = {
   'menu.fps': 'Frames per second',
   'menu.pickArea': 'Select the game map area…',
   'menu.snapshot': 'Game map snapshot for debugging',
+  'menu.reportBug': 'Report a bug…',
+  'menu.reportBugTitle': 'Opens the support Discord: describe what happened; a game map snapshot helps',
   'menu.snapshotTitle': 'Saves a frame of the game map and what the overlay found on it to the profile folder, for troubleshooting',
   'header.tag': 'Tactical overlay',
   'header.scale': 'Azimuth · Range · Correction',

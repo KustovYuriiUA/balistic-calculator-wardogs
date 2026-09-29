@@ -108,6 +108,10 @@ Tray menu: **Check for updates** checks now; **Update automatically** turns back
 - The only network traffic is the update check and download, to `api.github.com` and GitHub's release file servers. Turn off **Update automatically** in the tray menu to stop it. The map page itself is blocked from any connection by its Content Security Policy, and the maps are bundled.
 - Presets, the window position, the language and downloaded updates are stored locally in `%APPDATA%\basketball-overlay`.
 
+## Support and bug reports
+
+Found a bug or have an idea? Post it on the support Discord: <https://discord.gg/jnB44eyq9e>. The overlay opens it from **☰ → Report a bug…** and from the tray menu. Say which version you run (tray → version), what you did, what you expected and what happened, and add a screenshot. For problems with the game map layer, also attach a snapshot from **☰ → Game map snapshot for debugging**.
+
 ## Build from source
 
 Requires Node.js 24 and pnpm 11. TypeScript and React; Vite builds the pages, esbuild the main process.

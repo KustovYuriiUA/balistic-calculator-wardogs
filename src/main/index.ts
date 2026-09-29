@@ -15,6 +15,7 @@ import { LANGUAGE_SYNC, type Scene, type UpdateAction } from '@/shared/ipc'
 import { onEvent, onRequest, push } from './ipc'
 import { createOverlayWindow } from './overlay-window'
 import { readLanguage, saveLanguage } from './settings'
+import { openSupport } from './support'
 import { createTray } from './tray'
 
 const UPDATE_ACTIONS: UpdateAction[] = ['check', 'restart', 'open']
@@ -101,6 +102,7 @@ async function start() {
     hide: () => window.hide(),
     pickArea: () => layer.pick(),
     snapshot: () => layer.snapshot(),
+    reportBug: openSupport,
     setLanguage: changeLanguage,
     reveal: overlay.reveal,
   })
@@ -150,6 +152,9 @@ async function start() {
   })
   onEvent('overlay:game-map-snapshot', (event) => {
     if (isFromOverlay(event.sender)) layer.snapshot()
+  })
+  onEvent('overlay:report-bug', (event) => {
+    if (isFromOverlay(event.sender)) openSupport()
   })
 
   startUpdater({

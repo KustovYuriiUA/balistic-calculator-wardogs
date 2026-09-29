@@ -37,6 +37,7 @@ export interface OverlayEvents {
   'overlay:game-map-select': [key: string]
   'overlay:game-map-settings': [settings: GameMapSettings]
   'overlay:game-map-snapshot': []
+  'overlay:report-bug': []
   'app:set-language': [language: Language]
 }
 

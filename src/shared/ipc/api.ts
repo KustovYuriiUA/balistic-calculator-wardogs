@@ -30,6 +30,8 @@ export interface OverlayApi {
   keyboard: () => void
   marking: () => void
   quit: () => void
+  /** Opens the support forum in the browser. */
+  reportBug: () => void
   pasteText: () => Promise<string>
   copyCoordinates: (text: string) => Promise<boolean>
   drag: (kind: DragKind, phase: DragPhase) => void

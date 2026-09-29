@@ -17,6 +17,12 @@ const {_electron}=require('./playwright.cjs');
     await page.locator('#calculator-tab').click();
     assert.equal(await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isAlwaysOnTop()),true);
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
+    // ☰ → Report a bug: main opens the support forum's fixed address (the browser itself is stubbed here).
+    await application.evaluate(({shell})=>{shell.openExternal=url=>{globalThis.openedUrl=url;return Promise.resolve();};});
+    await page.locator('#menu-button').click();await page.locator('#menu-report-bug').click();
+    await page.waitForFunction(()=>!document.getElementById('app-menu'));
+    for(const end=Date.now()+3000;Date.now()<end&&!await application.evaluate(()=>globalThis.openedUrl);)await new Promise(r=>setTimeout(r,50));
+    assert.equal(await application.evaluate(()=>globalThis.openedUrl),'https://discord.gg/jnB44eyq9e','Report a bug opens the support forum');
     const paste=async(id,text)=>{await application.evaluate(({clipboard},value)=>clipboard.writeText(value),text);await page.locator('#'+id).focus();await page.keyboard.press('Control+A');await page.keyboard.press('Control+V');};
     await paste('player','Y102 X88');await paste('target','X72 Y80');
     await page.locator('#calculate-distance').click();

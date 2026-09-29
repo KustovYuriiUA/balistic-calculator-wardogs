@@ -28,6 +28,10 @@ export function AppMenu({
     onClose()
     window.overlay?.gameMap.pick()
   }
+  const reportBug = () => {
+    onClose()
+    window.overlay?.reportBug()
+  }
   const snapshot = () => {
     onClose()
     if (!gameMap || gameMap.state === 'no-area') {
@@ -75,6 +79,16 @@ export function AppMenu({
         onClick={snapshot}
       >
         {t('menu.snapshot')}
+      </button>
+      <button
+        type="button"
+        id="menu-report-bug"
+        className="menu-item"
+        role="menuitem"
+        title={t('menu.reportBugTitle')}
+        onClick={reportBug}
+      >
+        {t('menu.reportBug')}
       </button>
     </div>
   )

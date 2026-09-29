@@ -13,6 +13,7 @@ const api: OverlayApi = {
   keyboard: () => send('overlay:keyboard'),
   marking: () => send('overlay:marking'),
   quit: () => send('overlay:quit'),
+  reportBug: () => send('overlay:report-bug'),
   pasteText: () => request('overlay:paste'),
   copyCoordinates: (text) => request('overlay:copy', text),
   drag: (kind, phase) => send('overlay:drag', kind, phase),
