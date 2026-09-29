@@ -157,13 +157,15 @@ function refineOn(level,cap,fix,{radius=3,scales=[.97,.985,1,1.015,1.03],max=128
 // Pick the level whose template size comes closest to max without exceeding it.
 const levelFor=(levels,cap,s,max)=>levels.find(l=>Math.max(cap.width,cap.height)*(1-2*INSET)*s/l.r<=max)||levels[levels.length-1];
 
-// Capture (RGBA) → luminance with integral, as used by every search.
-function captureOf(img){const l=lumaOf(img);return {width:l.width,height:l.height,I:integralOf(l)};}
+// Capture → luminance with integral, as used by every search. img.luma, when given, is used as it is (the layer
+// takes it straight from the frame's Y plane); otherwise it is computed from the RGBA data.
+function captureOf(img){const l=img.luma||lumaOf(img);return {width:l.width,height:l.height,I:integralOf(l)};}
 
 // Track: refine the previous fix on a coarse and then a fine level. Null when the map moved too far or closed.
-function trackFix(levels,cap,fix,{minScore=.3}={}){
+// quick: the two coarser levels only (about a third of the time, a few metres less precise), for a map in motion.
+function trackFix(levels,cap,fix,{minScore=.3,quick=false}={}){
   let f=fix;
-  for(const [max,radius] of [[48,3],[110,2],[200,2]]){const r=refineOn(levelFor(levels,cap,f.s,max),cap,f,{radius,max});if(!r)return null;f=r;}
+  for(const [max,radius] of quick?[[48,3],[110,2]]:[[48,3],[110,2],[200,2]]){const r=refineOn(levelFor(levels,cap,f.s,max),cap,f,{radius,max});if(!r)return null;f=r;}
   return f.score>=minScore?f:null;
 }
 // Acquire: wide FFT search over scales on coarse levels, then refine the best candidates. Scales in metres per

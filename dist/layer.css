@@ -3,7 +3,7 @@
 html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:600 12px/1.2 var(--font);color:var(--cream);user-select:none}
 [hidden]{display:none!important}
 
-/* Layer: detected rim, zone badge, game coordinates under the cursor */
+/* Layer: detected rim, zone badge */
 #scene{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
 #rim{fill:none;stroke:var(--amber-hi);stroke-width:1.5;stroke-dasharray:6 5;stroke-opacity:.85}
 .weak #rim{stroke-dasharray:2 5}
@@ -31,11 +31,15 @@ html,body{margin:0;height:100%;overflow:hidden;background:transparent;font:600 1
 .marking #marks [data-pin]{pointer-events:auto;cursor:pointer}
 .marking #marks [data-pin]:hover circle{stroke-width:2.5}
 .marking .badge{border-color:var(--amber);background:rgba(20,17,6,.9)}
-/* The map is open (or Insert was pressed) but not found yet: what the search is doing, in the middle of the map */
-.busy{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:10px;max-width:calc(100% - 48px);box-sizing:border-box;padding:10px 16px;background:rgba(8,9,10,.88);border:1px solid var(--amber);font-size:15px;letter-spacing:.04em;color:var(--amber-hi)}
-.busy i{flex:none;width:16px;height:16px;border:2px solid var(--amber);border-right-color:transparent;border-radius:50%;animation:busy-spin .8s linear infinite}
+/* A wheel or a drag: the game has the mouse for a moment, the frame fades until it comes back */
+.marking.passing{cursor:auto;box-shadow:inset 0 0 0 2px rgba(231,179,36,.35)}
+.pass-hint{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);max-width:calc(100% - 24px);box-sizing:border-box;padding:5px 10px 4px;background:rgba(8,9,10,.82);border:1px solid rgba(231,179,36,.35);color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.04em;pointer-events:none}
+/* The map is open (or Insert was pressed) but not found yet: what the search is doing, a small line at the top edge
+   of the map, in the zone badge's place (the badge shows only once the map is found) */
+.busy{position:fixed;left:50%;top:8px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100% - 24px);box-sizing:border-box;padding:5px 10px 4px;background:rgba(8,9,10,.82);border:1px solid rgba(231,179,36,.55);font-size:12px;letter-spacing:.04em;color:var(--amber-hi);white-space:nowrap}
+.busy span{overflow:hidden;text-overflow:ellipsis}
+.busy i{flex:none;width:9px;height:9px;border:2px solid var(--amber);border-right-color:transparent;border-radius:50%;animation:busy-spin .8s linear infinite}
 @keyframes busy-spin{to{transform:rotate(360deg)}}
-.readout{position:fixed;padding:4px 7px 3px;background:rgba(8,9,10,.86);border:1px solid var(--amber);color:var(--amber-hi);font:700 13px/1 var(--font);font-variant-numeric:tabular-nums;letter-spacing:.04em;white-space:nowrap;pointer-events:none}
 
 /* Area picker: dim the screen, draw the rectangle of the in-game map panel */
 .picker{cursor:crosshair;background:rgba(0,0,0,.45)}

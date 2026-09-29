@@ -1,10 +1,12 @@
 'use strict';
 // Game-map layer: a click-through window over the in-game map panel. Its page (dist/layer.js) captures that
 // screen area, calibrates it to game units and draws the overlay's points there. Insert turns marker mode on and
-// off: while the map is calibrated the layer takes the mouse and its clicks go to the overlay as points. Neither the
-// layer nor the picker for the area ever takes the keyboard: the game keeps its focus and its sound.
+// off: while the map is calibrated the layer takes the mouse and its clicks go to the overlay as points; a wheel or a
+// drag over it hands the mouse to the game for a moment, so the game's map zooms and moves. Neither the layer nor the picker for the area
+// ever takes the keyboard: the game keeps its focus and its sound.
 const path=require('node:path');
 const {readArea,resolveArea,areaFromSelection,snapArea,saveArea}=require('./map-area.cjs');
+const {t}=require('../dist/i18n.js');
 const page=name=>path.join(__dirname,'..','dist',name);
 // A session of their own: page zoom (the overlay's font size) propagates across same-origin pages of one session,
 // and the layer draws in exact screen pixels.
@@ -33,6 +35,9 @@ function cleanMemory(m){
 
 // Poll rate of the in-game map capture, frames per second.
 const FPS_CHOICES=[15,30,60,120],DEFAULT_FPS=60;
+// The mouse handed to the game for a wheel or a drag goes back to the layer this long after the layer last asked
+// for it (it asks every second while the game's map moves), should the layer not give it back itself.
+const PASS_MS=3000;
 const cleanFps=v=>FPS_CHOICES.includes(v)?v:DEFAULT_FPS;
 
 function createMapLayer({file,memoryFile,diagnostics,onStatus,onClick=()=>{},onNotice=()=>{},beforePick=()=>{},afterPick=()=>{}}){
@@ -40,34 +45,40 @@ function createMapLayer({file,memoryFile,diagnostics,onStatus,onClick=()=>{},onN
   const {BrowserWindow,desktopCapturer,ipcMain,screen,shell}=require('electron');
   const fs=require('node:fs');
   let layer=null,picker=null,pickerDisplay=null,area=null,selection=null,scene=null,marking=false,clickable=false,fps=DEFAULT_FPS,status=cleanStatus({state:'no-area'}),restart=0;
+  // taking: the layer window has the mouse right now; passing: handed to the game for a wheel zoom (see layer:pass).
+  let taking=false,passing=false,passTimer=0;
   const notify=()=>onStatus({...status,marking});
-  // The layer takes the mouse only in marker mode and while the map is calibrated; otherwise every click goes to the game.
+  // The layer takes the mouse only in marker mode and while the map is calibrated; otherwise every click goes to the
+  // game. While passing the game has it too, and marker mode stays on.
   function applyLayer(){
-    const on=marking&&status.calibrated&&live();
-    if(on===clickable)return;
+    const on=marking&&status.calibrated&&live(),raise=on&&!clickable;
     clickable=on;
-    if(!live())return;
-    layer.setIgnoreMouseEvents(!on,{forward:true});
-    if(on){layer.setAlwaysOnTop(true,'screen-saver');layer.showInactive();}
+    if(!marking||!live())endPass();
+    const take=on&&!passing;
+    if(!live()||take===taking)return;
+    taking=take;
+    layer.setIgnoreMouseEvents(!take,{forward:true});
+    if(raise){layer.setAlwaysOnTop(true,'screen-saver');layer.showInactive();}
   }
+  function endPass(){if(!passing)return;passing=false;clearTimeout(passTimer);if(live())layer.webContents.send('layer:pass',false);}
   const report=next=>{status=cleanStatus(next);applyLayer();notify();};
   const guard=window=>{window.setMenu(null);window.setAlwaysOnTop(true,'screen-saver');window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',event=>event.preventDefault());};
   const live=()=>Boolean(layer&&!layer.isDestroyed());
-  function close(){clearTimeout(restart);clickable=false;if(live())layer.destroy();layer=null;}
+  function close(){clearTimeout(restart);clearTimeout(passTimer);clickable=taking=passing=false;if(live())layer.destroy();layer=null;}
   // (Re)create the layer exactly over the saved area; without a valid area there is nothing to capture.
   function open(){
     close();
     area=resolveArea(readArea(file),screen.getAllDisplays());
     if(!area){report({state:'no-area'});return;}
-    const window=layer=new BrowserWindow({...area.rect,...frameless,title:'Точный бросок — карта игры',webPreferences:{...webPreferences,backgroundThrottling:false}});
+    const window=layer=new BrowserWindow({...area.rect,...frameless,title:t('layer.title'),webPreferences:{...webPreferences,backgroundThrottling:false}});
     guard(window);
     // Our own drawings must never reach the capture; outside marker mode the mouse always goes to the game.
     window.setContentProtection(true);
     window.setIgnoreMouseEvents(true,{forward:true});
     window.once('ready-to-show',()=>{if(!window.isDestroyed())window.showInactive();});
-    window.on('closed',()=>{if(layer===window){layer=null;clickable=false;}});
+    window.on('closed',()=>{if(layer===window){layer=null;clearTimeout(passTimer);clickable=taking=passing=false;}});
     window.webContents.on('did-finish-load',()=>{if(scene)window.webContents.send('layer:scene',scene);if(marking)window.webContents.send('layer:marking',true);});
-    window.webContents.on('render-process-gone',()=>{report({state:'error',message:'Слой карты игры перезапускается'});restart=setTimeout(open,3000);});
+    window.webContents.on('render-process-gone',()=>{report({state:'error',message:t('layer.restarting')});restart=setTimeout(open,3000);});
     report({state:'starting'});
     window.loadFile(page('layer.html'));
   }
@@ -84,7 +95,7 @@ function createMapLayer({file,memoryFile,diagnostics,onStatus,onClick=()=>{},onN
     pickerDisplay=screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     beforePick();
     // Not focusable either: the game keeps the keyboard, so M still opens its map while the frame is drawn.
-    const window=picker=new BrowserWindow({...pickerDisplay.bounds,...frameless,title:'Область карты игры',webPreferences});
+    const window=picker=new BrowserWindow({...pickerDisplay.bounds,...frameless,title:t('picker.title'),webPreferences});
     guard(window);
     window.once('ready-to-show',()=>{if(!window.isDestroyed())window.showInactive();});
     window.on('closed',()=>{picker=null;afterPick();});
@@ -96,10 +107,10 @@ function createMapLayer({file,memoryFile,diagnostics,onStatus,onClick=()=>{},onN
   const saveMemory=()=>{if(!pendingMemory||!memoryFile)return;try{fs.mkdirSync(path.dirname(memoryFile),{recursive:true});fs.writeFileSync(memoryFile,JSON.stringify(pendingMemory));}catch(error){console.warn('Не удалось сохранить калибровку карты игры:',error.message);}pendingMemory=null;};
   const fromLayer=event=>live()&&event.sender===layer.webContents;
   ipcMain.handle('layer:config',async event=>{
-    if(!fromLayer(event)||!area)throw new Error('Область карты игры не выбрана');
+    if(!fromLayer(event)||!area)throw new Error(t('layer.noArea'));
     const sources=await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:0,height:0}});
     const source=sources.find(s=>s.display_id===String(area.display.id))||(sources.length===1?sources[0]:null);
-    if(!source)throw new Error('Не найден экран с картой игры');
+    if(!source)throw new Error(t('layer.noScreen'));
     return {sourceId:source.id,rect:area.rect,display:{bounds:area.display.bounds},snapped:area.snapped,selection,fps,memory:readMemory()};
   });
   ipcMain.on('layer:remember',(event,next)=>{
@@ -127,15 +138,27 @@ function createMapLayer({file,memoryFile,diagnostics,onStatus,onClick=()=>{},onN
     if(!next)return;// implausible: keep the drawn area, a later frame may find the panel
     const moved=['x','y','width','height'].some(k=>Math.abs(next.rect[k]-saved.rect[k])>3);
     if(!saveArea(file,moved?next:{...saved,snapped:true}))return;
-    if(moved){onNotice(`Область захвата подогнана под карту игры: ${next.rect.width}×${next.rect.height}`);open();}else{area.snapped=true;layer.webContents.send('layer:snapped');}
+    if(moved){onNotice(t('notice.fitted',{w:next.rect.width,h:next.rect.height}));open();}else{area.snapped=true;layer.webContents.send('layer:snapped');}
   });
-  // The zone rim is in view but the map's frame is not on the area's edges: fit the area again, from its current rect.
-  ipcMain.on('layer:refit',event=>{
+  // The zone rim is in view, the map's frame is not on the area's edges, and the panel was found elsewhere around it
+  // (another UI scale in the game): the area moves to that panel, still fitted. Anything implausible is ignored.
+  ipcMain.on('layer:refit',(event,panel)=>{
     if(!fromLayer(event)||!area?.snapped)return;
-    const saved=readArea(file);if(!saved||!saveArea(file,{...saved,snapped:false}))return;
-    onNotice('Карта игры сдвинулась: подгоняю область захвата заново');open();
+    const saved=readArea(file),next=saved&&snapArea(saved,panel);
+    if(!next||!['x','y','width','height'].some(k=>Math.abs(next.rect[k]-saved.rect[k])>3)||!saveArea(file,next))return;
+    onNotice(t('notice.moved',{w:next.rect.width,h:next.rect.height}));open();
   });
   ipcMain.on('layer:click',(event,click)=>{const c=cleanClick(click);if(fromLayer(event)&&clickable&&c)onClick(c);});
+  // A wheel or a drag over the layer in marker mode (that one is lost): the mouse goes to the game, whose map zooms or
+  // moves, until the layer gives it back (see layer.js), or PASS_MS after the layer last asked. Asking again keeps it
+  // there while marker mode lasts, even if the map is lost for a moment while it moves.
+  ipcMain.on('layer:pass',(event,on)=>{
+    if(!fromLayer(event))return;
+    if(on===true&&(clickable||passing&&marking)){clearTimeout(passTimer);passing=true;passTimer=setTimeout(()=>{endPass();applyLayer();},PASS_MS);}
+    else if(on===true)event.sender.send('layer:pass',false);
+    else endPass();
+    applyLayer();
+  });
   ipcMain.on('picker:done',(event,rect)=>{
     if(!picker||event.sender!==picker.webContents)return;
     const next=areaFromSelection(rect,pickerDisplay);
@@ -156,6 +179,8 @@ function createMapLayer({file,memoryFile,diagnostics,onStatus,onClick=()=>{},onN
     settings(next){fps=cleanFps(next?.fps);if(live())layer.webContents.send('layer:settings',{fps});},
     snapshot(){if(live())layer.webContents.send('layer:snapshot');return live();},
     scene(next){scene=next;if(live())layer.webContents.send('layer:scene',next);},
+    // Another interface language: the layer (and an open picker) redraw their text in it.
+    language(next){for(const w of [layer,picker])if(w&&!w.isDestroyed())w.webContents.send('app:language-changed',next);},
     flush:saveMemory,
   };
 }

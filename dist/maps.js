@@ -4,8 +4,8 @@ const MAP_EXTENT=163.84;
 function coordToMap(p){return {x:p.x/MAP_EXTENT*1000,y:(1-p.y/MAP_EXTENT)*1000};}
 function mapToCoord(p){return {x:p.x/1000*MAP_EXTENT,y:(1-p.y/1000)*MAP_EXTENT};}
 function azimuth(from,to){const dx=to.x-from.x,dy=to.y-from.y;return Math.hypot(dx,dy)<1e-9?null:(Math.atan2(dx,dy)*180/Math.PI+360)%360;}
-// Compass dial reading: three digits and tenths, 43.24 -> "043,2°".
-function formatAzimuth(value){if(value===null||!Number.isFinite(value))return '—';const [whole,tenth]=(Math.round(value*10)/10%360).toFixed(1).split('.');return whole.padStart(3,'0')+','+tenth+'°';}
+// Compass dial reading: three digits and tenths, 43.24 -> "043.2°" ("043,2°" in Russian, and in Node).
+function formatAzimuth(value){if(value===null||!Number.isFinite(value))return '—';const [whole,tenth]=(Math.round(value*10)/10%360).toFixed(1).split('.');return whole.padStart(3,'0')+(typeof I18N!=='undefined'?I18N.decimal():',')+tenth+'°';}
 if(typeof module!=='undefined')module.exports={coordToMap,mapToCoord,azimuth,formatAzimuth};
 if(typeof document!=='undefined'){
   const $=id=>document.getElementById(id),svg=$('terrain'),ns='http://www.w3.org/2000/svg';
@@ -20,8 +20,8 @@ if(typeof document!=='undefined'){
     const payload=JSON.stringify({version:1,world,selections:[...selections],presets:[...worlds]});
     if(payload===lastSaved)return;
     const status=$('preset-status');
-    try{localStorage.setItem(storageKey,payload);lastSaved=payload;status.textContent='Сохранено';status.classList.remove('error');}
-    catch{status.textContent='Не сохранено';status.classList.add('error');status.title='Не удалось записать пресеты. Проверь свободное место и доступ к профилю приложения.';}
+    try{localStorage.setItem(storageKey,payload);lastSaved=payload;status.textContent=T('targets.saved');status.classList.remove('error');}
+    catch{status.textContent=T('targets.notSaved');status.classList.add('error');status.title=T('targets.notSavedTitle');}
   }
   function restorePresets(){
     const point=p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&Math.abs(p.x)<=1e9&&Math.abs(p.y)<=1e9;
@@ -47,7 +47,7 @@ if(typeof document!=='undefined'){
         renumber(preset);worlds.set(key,preset);
       }
       if(MAP_LANDMARKS[data.world])world=data.world;
-    }catch{$('preset-status').textContent='Ошибка чтения';$('preset-status').classList.add('error');$('preset-status').title='Не удалось прочитать сохранения пресетов.';}
+    }catch{$('preset-status').textContent=T('targets.readError');$('preset-status').classList.add('error');$('preset-status').title=T('targets.readErrorTitle');}
   }
   function switchPreset(change){
     saveForm();persistPresets();change();landmarkControls();
@@ -56,12 +56,12 @@ if(typeof document!=='undefined'){
   }
   function landmarkSelection(){if(!selections.has(world)){const data=MAP_LANDMARKS[world];const rotation=data.rotations.find(r=>data.zones.some(z=>z.rotation===r.id))||data.rotations[0];selections.set(world,{region:rotation.id,zone:data.zones.find(z=>z.rotation===rotation.id)?.id||''});}return selections.get(world);}
   function landmarkItems(){const data=MAP_LANDMARKS[world],choice=landmarkSelection(),region=data.rotations.find(r=>r.id===choice.region);return {bases:data.spawns.filter(b=>region.towns.includes(b.town)),zone:data.zones.find(z=>z.id===choice.zone)};}
-  function landmarkControls(){const data=MAP_LANDMARKS[world],choice=landmarkSelection();$('region-select').replaceChildren(...data.rotations.map(r=>new Option(r.name,r.id)));$('region-select').value=choice.region;const zones=data.zones.filter(z=>z.rotation===choice.region);if(!zones.some(z=>z.id===choice.zone))choice.zone=zones[0]?.id||'';$('zone-select').replaceChildren(...(zones.length?zones.map(z=>new Option(z.name==='Default'?'Основная':z.name,z.id)):[new Option('Нет данных','')]));$('zone-select').value=choice.zone;$('zone-select').disabled=!zones.length;}
+  function landmarkControls(){const data=MAP_LANDMARKS[world],choice=landmarkSelection();$('region-select').replaceChildren(...data.rotations.map(r=>new Option(r.name,r.id)));$('region-select').value=choice.region;const zones=data.zones.filter(z=>z.rotation===choice.region);if(!zones.some(z=>z.id===choice.zone))choice.zone=zones[0]?.id||'';$('zone-select').replaceChildren(...(zones.length?zones.map(z=>new Option(z.name==='Default'?T('zone.main'):z.name,z.id)):[new Option(T('zone.noData'),'')]));$('zone-select').value=choice.zone;$('zone-select').disabled=!zones.length;}
   const svgEl=(parent,tag,attrs)=>{const el=document.createElementNS(ns,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,v);parent.append(el);return el;};
   function drawLandmarks(unit){
     const {bases,zone}=landmarkItems(),layer=$('terrain-landmarks');layer.replaceChildren();
     $('fit-zone').disabled=!zone;
-    if(zone){const x=zone.pos[0]*1000,y=zone.pos[1]*1000,r=zone.radiusM/16384*1000;svgEl(layer,'circle',{class:'control-zone',cx:x,cy:y,r,fill:'#fff2dd14',stroke:'#fff2dd','stroke-width':1.5,'stroke-dasharray':'6 4','vector-effect':'non-scaling-stroke'});svgEl(layer,'text',{x,y:y-r-6*unit,'text-anchor':'middle','font-size':12*unit,'stroke-width':3*unit,class:'landmark-label'}).textContent='Зона · '+zone.radiusM+' м';}
+    if(zone){const x=zone.pos[0]*1000,y=zone.pos[1]*1000,r=zone.radiusM/16384*1000;svgEl(layer,'circle',{class:'control-zone',cx:x,cy:y,r,fill:'#fff2dd14',stroke:'#fff2dd','stroke-width':1.5,'stroke-dasharray':'6 4','vector-effect':'non-scaling-stroke'});svgEl(layer,'text',{x,y:y-r-6*unit,'text-anchor':'middle','font-size':12*unit,'stroke-width':3*unit,class:'landmark-label'}).textContent=T('zone.label',{r:zone.radiusM});}
     for(const b of bases){const x=b.pos[0]*1000,y=b.pos[1]*1000,color={manticore:'#57c05f',valkyra:'#ef5a4f',lonestar:'#4d9be0'}[b.faction];const g=svgEl(layer,'g',{class:'spawn-base','data-town':b.town});svgEl(g,'circle',{cx:x,cy:y,r:11*unit,fill:'#08090a',stroke:color,'stroke-width':2,'vector-effect':'non-scaling-stroke'});svgEl(g,'text',{x,y:y+4.5*unit,'text-anchor':'middle',fill:color,'font-size':13*unit,'font-weight':'bold','font-family':'Bahnschrift, sans-serif'}).textContent=b.faction[0].toUpperCase();svgEl(g,'text',{x,y:y+25*unit,'text-anchor':'middle','font-size':12*unit,'stroke-width':3*unit,class:'landmark-label'}).textContent=b.town;}
   }
   // Grid adapts to zoom (10 → 1 unit = 1 km → 100 m); labels stay on the visible edges.
@@ -79,19 +79,19 @@ if(typeof document!=='undefined'){
 
   // Undo: snapshots of the current preset before every change of points.
   function remember(){saveForm();const key=presetKey();if(!undoStacks.has(key))undoStacks.set(key,[]);const stack=undoStacks.get(key);stack.push(JSON.stringify(state()));if(stack.length>50)stack.shift();}
-  function undo(){const key=presetKey(),stack=undoStacks.get(key);if(!stack?.length){toast('Нечего отменять');return;}worlds.set(key,JSON.parse(stack.pop()));$('map-error').textContent='';loadSelected();setTool(state().player?(tool==='player'?'target':tool):'player');toast('Отменено');}
+  function undo(){const key=presetKey(),stack=undoStacks.get(key);if(!stack?.length){toast(T('toast.nothingToUndo'));return;}worlds.set(key,JSON.parse(stack.pop()));$('map-error').textContent='';loadSelected();setTool(state().player?(tool==='player'?'target':tool):'player');toast(T('toast.undone'));}
   function toast(text,undoable=false){$('toast-text').textContent=text;$('toast-undo').hidden=!undoable;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{$('toast').hidden=true;},undoable?6000:2200);}
   $('toast-undo').onclick=undo;
 
-  function removeTarget(id){remember();const s=state();s.targets=s.targets.filter(t=>t.id!==id);if(s.selected===id)s.selected=s.targets[0]?.id??null;renumber(s);loadSelected();toast(`Цель ${id} удалена`,true);}
+  function removeTarget(id){remember();const s=state();s.targets=s.targets.filter(t=>t.id!==id);if(s.selected===id)s.selected=s.targets[0]?.id??null;renumber(s);loadSelected();toast(T('toast.targetRemoved',{id}),true);}
   // Numbers follow the list order: card N is hotkey N, and the next target gets the next free number.
   function renumber(s){const ids=new Map(s.targets.map((t,i)=>[t.id,i+1]));for(const t of s.targets)t.id=ids.get(t.id);s.selected=ids.get(s.selected)??null;s.next=s.targets.length+1;}
   // First click selects a pin, a click on the selected pin removes it (Ctrl+Z brings it back).
   function markerClick(e,id){e.stopPropagation();if(state().selected===id)removeTarget(id);else choose(id);}
   // Clicking the own pin removes the position; targets stay, their impacts reset (Ctrl+Z restores).
-  function removePlayer(e){e.stopPropagation();remember();state().player=null;resetShots();setTool('player');loadSelected();toast('Позиция убрана',true);}
+  function removePlayer(e){e.stopPropagation();remember();state().player=null;resetShots();setTool('player');loadSelected();toast(T('toast.positionRemoved'),true);}
   function resetShots(){const s=state();for(const t of s.targets){t.distance=s.player?range(s.player,t.point).toFixed(2):'';t.hit='';t.previousAim='';t.shots=0;t.origin=originKey(s.player);}}
-  function resetCorrection(){const s=state(),t=selected();if(!t?.hit)return;remember();t.hit='';t.previousAim='';t.shots=0;t.distance=s.player?range(s.player,t.point).toFixed(2):'';loadSelected();toast(`Поправка цели ${t.id} сброшена`,true);}
+  function resetCorrection(){const s=state(),t=selected();if(!t?.hit)return;remember();t.hit='';t.previousAim='';t.shots=0;t.distance=s.player?range(s.player,t.point).toFixed(2):'';loadSelected();toast(T('toast.correctionReset',{id:t.id}),true);}
   $('reset-correction').onclick=resetCorrection;
   function solution(t){const s=state();if(!s.player||!t)return null;try{return t.hit?calculateShot(s.player,t.point,parseCoordinate(t.hit),(t.distance?.trim()?Number(t.distance.replace(',','.')):null),t.previousAim?parseCoordinate(t.previousAim):t.point):{aim:t.point,distance:Number(String(t.distance||'').replace(',','.'))||range(s.player,t.point)};}catch{return null;}}
   // What to dial in the game for this target: corrected azimuth/range once an impact is marked.
@@ -104,16 +104,16 @@ if(typeof document!=='undefined'){
   const state=()=>{const key=presetKey();if(!worlds.has(key))worlds.set(key,{player:null,targets:[],selected:null,next:1});return worlds.get(key);};
   const selected=()=>state().targets.find(t=>t.id===state().selected);
   const pointText=p=>`x${p.x.toFixed(2)}, y${p.y.toFixed(2)}`;
-  const display=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(n);
-  const metres=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0}).format(n)+' м';
+  const display=n=>I18N.number(n);
+  const metres=n=>I18N.number(n,0)+' '+T('unit.m');
   const range=(a,b)=>Math.hypot(b.x-a.x,b.y-a.y)*100;
   const signed=n=>(n>0?'+':n<0?'−':'')+display(Math.abs(Math.round(n*10)/10))+'°';
   const rangeText=f=>f.range===null?'× '+display(f.coefficient):metres(f.range);
   function setField(id,value){$(id).value=value;$(id).dispatchEvent(new Event('input',{bubbles:true}));}
   function changeTab(map){$('map-workspace').hidden=!map;$('calculator-workspace').hidden=map;$('maps-tab').setAttribute('aria-pressed',String(map));$('calculator-tab').setAttribute('aria-pressed',String(!map));if(storageReady){ui.tab=map?'map':'calc';saveUi();}if(map){syncFromForm();requestAnimationFrame(renderMap);}}
   $('maps-tab').onclick=()=>changeTab(true);$('calculator-tab').onclick=()=>changeTab(false);
-  const toolText={player:['Моя позиция','↵ Позиция'],target:['новая цель','↵ Цель'],hit:['разрыв выбранной цели','↵ Разрыв']};
-  function setTool(value){tool=value;svg.dataset.tool=tool;document.querySelectorAll('[data-map-tool]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mapTool===tool)));$('map-coordinate-label').textContent='Вставить координаты → '+toolText[tool][0].toLowerCase();$('place-coordinate').textContent=toolText[tool][1];renderBrief();}
+  const toolText={player:['entry.player','entry.playerButton'],target:['entry.target','entry.targetButton'],hit:['entry.hit','entry.hitButton']};
+  function setTool(value){tool=value;svg.dataset.tool=tool;document.querySelectorAll('[data-map-tool]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mapTool===tool)));$('map-coordinate-label').textContent=T('entry.label',{what:T(toolText[tool][0])});$('place-coordinate').textContent=T(toolText[tool][1]);renderBrief();}
   document.querySelectorAll('[data-map-tool]').forEach(b=>b.onclick=()=>setTool(b.dataset.mapTool));
   const originKey=p=>p?`${p.x},${p.y}`:null;
   $('player').addEventListener('input',e=>{
@@ -131,7 +131,7 @@ if(typeof document!=='undefined'){
     if(s.player&&t){
       const savedDistance=t.distance;
       $('calculate-distance').click();
-      if(savedDistance){$('distance').value=savedDistance;if(!t.hit){$('distance-value').textContent=display(Number(savedDistance.replace(',','.')))+' м';$('distance-note').textContent='Базовая дальность выбранной цели. После выстрела укажи разрыв для поправки.';}}
+      if(savedDistance){$('distance').value=savedDistance;if(!t.hit){$('distance-value').textContent=display(Number(savedDistance.replace(',','.')))+' '+T('unit.m');$('distance-note').textContent=T('calc.baseNote');}}
       t.distance=$('distance').value;
       t.origin=originKey(s.player);
       if(t.hit)$('shot-form').requestSubmit();
@@ -141,34 +141,34 @@ if(typeof document!=='undefined'){
   function choose(id){saveForm();state().selected=id;loadSelected();}
   function place(point){
     $('map-error').textContent='';
-    if(!Number.isFinite(point.x)||!Number.isFinite(point.y)||point.x<0||point.y<0||point.x>MAP_EXTENT||point.y>MAP_EXTENT){$('map-error').textContent='Координаты карты должны быть от 0 до 163,84.';return;}
+    if(!Number.isFinite(point.x)||!Number.isFinite(point.y)||point.x<0||point.y<0||point.x>MAP_EXTENT||point.y>MAP_EXTENT){$('map-error').textContent=T('err.mapRange');return;}
     point={x:Number(point.x.toFixed(2)),y:Number(point.y.toFixed(2))};
     const s=state();saveForm();
     if(tool==='player'){remember();s.player=point;resetShots();setTool('target');}
     else if(tool==='target'){remember();const id=s.next++;s.targets.push({id,point,distance:'',hit:'',previousAim:'',shots:0});s.selected=id;}
     else if(tool==='hit'){
       const t=selected();
-      if(!t){$('map-error').textContent='Сначала выбери цель в списке или на карте.';return;}
-      if(!s.player||!t.distance){$('map-error').textContent='Сначала задай свою позицию.';return;}
+      if(!t){$('map-error').textContent=T('err.pickTarget');return;}
+      if(!s.player||!t.distance){$('map-error').textContent=T('err.setPosition');return;}
       remember();
       // A new impact after a correction was fired with the corrected range and aim: chain from them.
       const previous=t.hit?solution(t):null;
       if(previous&&previous.distance!==null){t.distance=previous.distance.toFixed(2);t.previousAim=pointText(previous.aim);t.shots=(t.shots||1)+1;}else t.shots=1;
       t.hit=pointText(point);
     }
-    else{$('map-error').textContent='Выбери инструмент точки.';return;}
+    else{$('map-error').textContent=T('err.pickTool');return;}
     loadSelected();
   }
   function render(){renderList();renderSolution();renderBrief();renderMap();persistPresets();}
   function renderBrief(){
     const s=state(),t=selected();let step='',text,done=false;
-    if(!s.player)[step,text]=['1/3',tool==='player'?'Поставь свою позицию: <b>ЛКМ</b> по карте или вставь координаты справа':'Сначала поставь свою позицию: инструмент <b>Я</b> (G)'];
-    else if(tool==='player')text='<b>ЛКМ</b> по карте переставит твою позицию. Цели сохранятся, поправки сбросятся';
-    else if(!s.targets.length)[step,text]=['2/3','Отметь цель: <b>ЛКМ</b> по карте'];
-    else if(!t)text='Выбери цель в списке, на карте или клавишами <b>1–9</b>';
-    else if(tool==='hit')text=`<b>ЛКМ</b> или <b>ПКМ</b> — место разрыва для цели ${t.id}`;
-    else if(!t.hit)[step,text]=['3/3',`Выстрели с азимутом и дальностью цели ${t.id}, затем <b>ПКМ</b> по месту разрыва`];
-    else [step,text,done]=['✓',`Поправка готова. Стреляй с новыми значениями, новый разрыв — снова <b>ПКМ</b>`,true];
+    if(!s.player)[step,text]=['1/3',T(tool==='player'?'brief.placeMe':'brief.meFirst')];
+    else if(tool==='player')text=T('brief.moveMe');
+    else if(!s.targets.length)[step,text]=['2/3',T('brief.markTarget')];
+    else if(!t)text=T('brief.pickTarget');
+    else if(tool==='hit')text=T('brief.hit',{id:t.id});
+    else if(!t.hit)[step,text]=['3/3',T('brief.fire',{id:t.id})];
+    else [step,text,done]=['✓',T('brief.done'),true];
     $('brief-step').hidden=!step;$('brief-step').textContent=step;$('map-brief').classList.toggle('done',done);$('map-help').innerHTML=text;
     reportScene();
   }
@@ -180,39 +180,39 @@ if(typeof document!=='undefined'){
   }
   function renderSolution(){
     const s=state(),t=selected(),f=fire(t),box=$('fire-solution'),meta=$('fs-meta'),valid=f&&!f.error;
-    box.classList.toggle('empty',!valid);$('fs-target').textContent=t?'Цель '+t.id:'Цель —';
+    box.classList.toggle('empty',!valid);$('fs-target').textContent=t?T('fs.target',{id:t.id}):T('fs.targetNone');
     $('fs-azimuth').textContent=valid?formatAzimuth(f.azimuth):'—';$('fs-range').textContent=valid?rangeText(f):'—';
-    $('fs-tag').hidden=!valid||!f.corrected;$('fs-tag').textContent=valid&&f.shots>1?'Поправка · '+f.shots:'Поправка';
+    $('fs-tag').hidden=!valid||!f.corrected;$('fs-tag').textContent=valid&&f.shots>1?T('fs.correctionN',{n:f.shots}):T('fs.correction');
     $('reset-correction').hidden=!t?.hit;
     meta.replaceChildren();
     const add=(label,value,cls)=>{const span=document.createElement('span');if(cls)span.className=cls;const b=document.createElement('b');b.textContent=value;span.append(label+' ',b);meta.append(span);};
-    if(!s.player)meta.textContent='Нет позиции. Инструмент «Я» (G) и ЛКМ по карте.';
-    else if(!t)meta.textContent=s.targets.length?'Выбери цель в списке или на карте.':'Отметь цель на карте: инструмент «Цель» (T).';
-    else if(!valid)meta.textContent='Проверь разрыв и дальность в ручном расчёте.';
+    if(!s.player)meta.textContent=T('fs.noPosition');
+    else if(!t)meta.textContent=T(s.targets.length?'fs.pickTarget':'fs.markTarget');
+    else if(!valid)meta.textContent=T('fs.check');
     // Before a correction the range above is the distance to the target: repeating it here only adds noise.
-    else if(f.corrected){add('до цели',metres(f.targetDistance));add('разрыв',metres(f.hitDistance));add('K','×'+display(f.coefficient),'aim');add('Δ аз',signed(f.delta),'aim');}
+    else if(f.corrected){add(T('fs.toTarget'),metres(f.targetDistance));add(T('fs.hit'),metres(f.hitDistance));add('K','×'+display(f.coefficient),'aim');add(T('fs.dAz'),signed(f.delta),'aim');}
   }
   function renderList(){
     const s=state(),t=selected(),list=$('target-list');
-    $('target-count').textContent=s.targets.length;$('map-player-label').textContent=s.player?pointText(s.player):'не задана';$('map-player-label').classList.toggle('unset',!s.player);
+    $('target-count').textContent=s.targets.length;$('map-player-label').textContent=s.player?pointText(s.player):T('entry.unset');$('map-player-label').classList.toggle('unset',!s.player);
     list.replaceChildren();
     const span=(cls,text)=>{const el=document.createElement('span');el.className=cls;el.textContent=text;return el;};
     for(const target of s.targets){
       const f=fire(target),valid=f&&!f.error;
       const row=document.createElement('div');row.className='target-row';row.dataset.targetId=target.id;
       if(t===target)row.classList.add('selected');if(target.hit)row.classList.add('corrected');
-      const b=document.createElement('button');b.type='button';b.className='target-select';b.setAttribute('aria-pressed',String(t===target));b.title='Выбрать цель · '+(s.targets.indexOf(target)<9?s.targets.indexOf(target)+1:'клик');
+      const b=document.createElement('button');b.type='button';b.className='target-select';b.setAttribute('aria-pressed',String(t===target));b.title=T('list.selectTitle',{key:s.targets.indexOf(target)<9?s.targets.indexOf(target)+1:T('list.click')});
       const name=document.createElement('strong');name.textContent=target.id;name.className='card-number';
-      const direction=span('target-azimuth',valid?formatAzimuth(f.azimuth):'—');direction.title='Азимут от своей позиции: 0° — север (+Y), 90° — восток (+X)';
-      const power=span('target-power',valid?rangeText(f):'—');power.title=target.hit?'Дальность с поправкой':'Дальность до цели';
+      const direction=span('target-azimuth',valid?formatAzimuth(f.azimuth):'—');direction.title=T('list.azimuthTitle');
+      const power=span('target-power',valid?rangeText(f):'—');power.title=T(target.hit?'list.rangeCorrected':'list.rangeTarget');
       const detail=document.createElement('span');detail.className='target-detail';
       // The big range on the right is the distance to the target until an impact corrects it: only then repeat the distance here.
       detail.append(span('card-coords',pointText(target.point)));
-      if(!s.player)detail.append(span('card-range','нет позиции'));else if(target.hit)detail.append(span('card-range','до цели '+metres(range(s.player,target.point))));
-      if(target.hit&&valid){const k=span('target-coefficient','K ×'+display(f.coefficient));k.title='Коэффициент дальности этой цели';detail.append(k,span('card-shots','выстрел '+f.shots));}
-      else if(target.hit)detail.append(span('card-error','проверь разрыв'));
+      if(!s.player)detail.append(span('card-range',T('list.noPosition')));else if(target.hit)detail.append(span('card-range',T('list.toTarget',{d:metres(range(s.player,target.point))})));
+      if(target.hit&&valid){const k=span('target-coefficient','K ×'+display(f.coefficient));k.title=T('list.coefTitle');detail.append(k,span('card-shots',T('list.shot',{n:f.shots})));}
+      else if(target.hit)detail.append(span('card-error',T('list.checkHit')));
       b.append(name,direction,power,detail);b.onclick=()=>choose(target.id);
-      const remove=document.createElement('button');remove.type='button';remove.className='target-remove';remove.textContent='×';remove.title='Удалить · Del';remove.setAttribute('aria-label','Удалить цель '+target.id);remove.onclick=()=>removeTarget(target.id);
+      const remove=document.createElement('button');remove.type='button';remove.className='target-remove';remove.textContent='×';remove.title=T('list.removeTitle');remove.setAttribute('aria-label',T('list.removeLabel',{id:target.id}));remove.onclick=()=>removeTarget(target.id);
       row.append(b,remove);list.append(row);
     }
     // Up to 10 targets are shown whole; more scroll. The compact window grows with its content up to that.
@@ -225,7 +225,7 @@ if(typeof document!=='undefined'){
     const unit=view.size/svg.clientWidth,s=state(),t=selected(),f=fire(t),markers=$('terrain-markers');
     drawnSize=view.size;drawLandmarks(unit);drawGrid();markers.replaceChildren();
     const line=(a,b,attrs)=>{const p=coordToMap(a),q=coordToMap(b);svgEl(markers,'line',{x1:p.x,y1:p.y,x2:q.x,y2:q.y,'vector-effect':'non-scaling-stroke','pointer-events':'none',...attrs});};
-    const pin=(p,label,{stroke,fill='#08090a',text=stroke,id=null,glyph=11})=>{const q=coordToMap(p),g=svgEl(markers,'g',{class:'map-pin','data-marker':id?'Цель '+id:label});svgEl(g,'circle',{cx:q.x,cy:q.y,r:11*unit,fill,stroke,'stroke-width':1.5,'vector-effect':'non-scaling-stroke'});svgEl(g,'text',{x:q.x,y:q.y,'text-anchor':'middle','dominant-baseline':'central',fill:text,'font-size':glyph*unit}).textContent=label;return g;};
+    const pin=(p,label,{stroke,fill='#08090a',text=stroke,id=null,glyph=11})=>{const q=coordToMap(p),g=svgEl(markers,'g',{class:'map-pin','data-marker':id?T('fs.target',{id}):label});svgEl(g,'circle',{cx:q.x,cy:q.y,r:11*unit,fill,stroke,'stroke-width':1.5,'vector-effect':'non-scaling-stroke'});svgEl(g,'text',{x:q.x,y:q.y,'text-anchor':'middle','dominant-baseline':'central',fill:text,'font-size':glyph*unit}).textContent=label;return g;};
     let hit=null;if(t?.hit){try{hit=parseCoordinate(t.hit);}catch{}}
     if(s.player){
       for(const target of s.targets)if(target!==t)line(s.player,target.point,{stroke:'#fff2dd','stroke-opacity':.5,'stroke-width':1});
@@ -234,8 +234,8 @@ if(typeof document!=='undefined'){
       if(f?.corrected&&f.aim)line(s.player,f.aim,{stroke:'#c9a7ff','stroke-width':1.5,'stroke-dasharray':'6 5'});
     }
     if(t){const q=coordToMap(t.point);svgEl(markers,'circle',{class:'pin-halo',cx:q.x,cy:q.y,r:17*unit,fill:'none',stroke:'#ffd24a','stroke-width':1,'stroke-opacity':.7,'vector-effect':'non-scaling-stroke','pointer-events':'none'});}
-    for(const target of s.targets){const g=pin(target.point,String(target.id),{stroke:target===t?'#ffd24a':'#fff2dd',id:target.id});const hint=target===t?'Удалить цель '+target.id:'Выбрать цель '+target.id;g.setAttribute('role','button');g.setAttribute('aria-label',hint);svgEl(g,'title',{}).textContent=target===t?hint+' · клик ещё раз':hint;g.onclick=e=>markerClick(e,target.id);}
-    if(s.player){const g=pin(s.player,'Я',{stroke:'#08090a',fill:'#fff2dd',text:'#141310'});g.setAttribute('role','button');g.setAttribute('aria-label','Убрать мою позицию');svgEl(g,'title',{}).textContent='Убрать мою позицию · ЛКМ поставит её заново';g.onclick=removePlayer;}
+    for(const target of s.targets){const g=pin(target.point,String(target.id),{stroke:target===t?'#ffd24a':'#fff2dd',id:target.id});const hint=T(target===t?'list.removeLabel':'pin.select',{id:target.id});g.setAttribute('role','button');g.setAttribute('aria-label',hint);svgEl(g,'title',{}).textContent=target===t?hint+T('pin.again'):hint;g.onclick=e=>markerClick(e,target.id);}
+    if(s.player){const g=pin(s.player,T('tools.me'),{stroke:'#08090a',fill:'#fff2dd',text:'#141310'});g.setAttribute('role','button');g.setAttribute('aria-label',T('pin.removeMe'));svgEl(g,'title',{}).textContent=T('pin.removeMeTitle');g.onclick=removePlayer;}
     if(f?.corrected&&f.aim)pin(f.aim,'+',{stroke:'#c9a7ff',glyph:17}).style.pointerEvents='none';
     if(hit)pin(hit,'×',{stroke:'#ff6a3d',glyph:17}).style.pointerEvents='none';
     if(t&&f&&!f.error){const q=coordToMap(t.point);svgEl(markers,'text',{class:'pin-label',x:q.x+19*unit,y:q.y+4*unit,fill:'#ffd24a','font-size':12*unit,'stroke-width':3*unit}).textContent=formatAzimuth(f.azimuth)+' · '+rangeText(f);}
@@ -273,8 +273,8 @@ if(typeof document!=='undefined'){
   $('shot-form').addEventListener('input',e=>{if(e.isTrusted)queueMicrotask(syncFromForm);});
   window.addEventListener('beforeunload',()=>{saveForm();persistPresets();});
   const narrow=matchMedia('(max-width: 760px)');let manualCompact=ui.compact===true;
-  // «Компактно» also shrinks the desktop window and «Полный вид» restores it; a window narrowed by hand turns compact by itself.
-  function compactMode(){const enabled=narrow.matches||manualCompact;document.body.classList.toggle('compact-map',enabled);document.body.classList.toggle('fit-height',Boolean(window.overlay)&&manualCompact);$('compact-toggle').setAttribute('aria-pressed',String(enabled));$('compact-toggle').textContent=manualCompact?'Полный вид':narrow.matches?'Компактно · авто':'Компактно';$('compact-toggle').disabled=narrow.matches&&!manualCompact;if(enabled)changeTab(true);requestAnimationFrame(renderMap);}
+  // "Compact" also shrinks the desktop window and "Full view" restores it; a window narrowed by hand turns compact by itself.
+  function compactMode(){const enabled=narrow.matches||manualCompact;document.body.classList.toggle('compact-map',enabled);document.body.classList.toggle('fit-height',Boolean(window.overlay)&&manualCompact);$('compact-toggle').setAttribute('aria-pressed',String(enabled));$('compact-toggle').textContent=T(manualCompact?'tabs.full':narrow.matches?'tabs.compactAuto':'tabs.compact');$('compact-toggle').disabled=narrow.matches&&!manualCompact;if(enabled)changeTab(true);requestAnimationFrame(renderMap);}
   $('compact-toggle').onclick=()=>{manualCompact=!manualCompact;ui.compact=manualCompact;saveUi();window.overlay?.compact?.(manualCompact);compactMode();};narrow.addEventListener('change',compactMode);
   changeTab(ui.tab!=='calc');compactMode();window.overlay?.compact?.(manualCompact);
   new ResizeObserver(()=>{requestAnimationFrame(renderMap);}).observe(svg);
@@ -284,12 +284,12 @@ if(typeof document!=='undefined'){
   function reportZone(){window.overlay?.gameMap?.select(zoneKey());}
   function zoneTitle(key){
     const [map,id]=key.split('/'),data=MAP_LANDMARKS[map],z=data?.zones.find(z=>z.id===id);if(!z)return key;
-    return [[...$('terrain-select').options].find(o=>o.value===map)?.textContent||map,data.rotations.find(r=>r.id===z.rotation)?.name||z.rotation,z.name==='Default'?'Основная':z.name].join(' · ');
+    return [[...$('terrain-select').options].find(o=>o.value===map)?.textContent||map,data.rotations.find(r=>r.id===z.rotation)?.name||z.rotation,z.name==='Default'?T('zone.main'):z.name].join(' · ');
   }
   function followGameZone(key){
     const [map,id]=key.split('/'),z=MAP_LANDMARKS[map]?.zones.find(z=>z.id===id);if(!z||key===zoneKey())return;
     switchPreset(()=>{world=map;$('terrain-select').value=map;$('terrain-image').setAttribute('href',`maps/${map}.webp`);selections.set(map,{region:z.rotation,zone:z.id});});
-    toast('Карта игры: '+zoneTitle(key));
+    toast(T('toast.gameZone',{title:zoneTitle(key)}));
   }
   // The game-map layer's state in the row above the solution, and the window bar's pill and hint (the pill switches
   // marker mode). Every step shows: capture starting, map closed, map open and searching (with progress), found.
@@ -297,37 +297,37 @@ if(typeof document!=='undefined'){
   const worldName=w=>[...$('terrain-select').options].find(o=>o.value===w)?.textContent||w;
   function showGameMap(s){
     gameMap=s;
-    const title=s.key?zoneTitle(s.key):'',open=s.open===true?'Карта открыта · ':'Карта игры: ';
+    const title=s.key?zoneTitle(s.key):'',plain=T('gm.lead'),open=s.open===true?T('gm.openLead'):plain;
     let [state,lead,strong,tip]=
-      s.state==='no-area'?['no-area','Карта игры: ','выбери область захвата','Открой карту в игре (M), нажми «Выбрать область захвата» и обведи карту рамкой']:
-      s.state==='starting'?['starting','Карта игры: ','запускаю захват…','Слой подключается к захвату экрана и готовит офлайн-карты']:
-      s.state==='closed'?['closed','Карта игры закрыта · ','M — открыть','Оверлей узнаёт открытую карту игры по её рамке и сразу рисует на ней точки']:
-      s.state==='searching'?['searching','Карта игры: жду карту ','M','Слой смотрит на выбранную область: ищет круг зоны или знакомую местность']:
-      s.state==='acquiring'?['acquiring',open,`ищу по местности · ${Math.round((s.progress||0)*100)} %`,'Сравниваю карту игры со всеми офлайн-картами сразу']:
-      s.state==='open'&&s.failed?['weak',open,'не узнана — отдали её до круга зоны','Ни круг зоны, ни местность не найдены: отдали карту колесом, чтобы круг зоны был виден']:
-      s.state==='open'?['acquiring',open,'ищу круг зоны…','Сначала круг зоны, через мгновение — поиск по местности']:
-      s.state==='error'?['error','Карта игры: ',s.message||'ошибка захвата','']:
-      s.state==='weak'?['weak','Круг виден частично — ','отдали карту','По короткой дуге круга масштаб неточный']:
-      s.source==='terrain'?['locked','Карта игры: ',worldName(s.world)+' · по местности','Круга зоны не видно: положение и масштаб карты найдены по местности']:
-      s.recognised?['locked','Карта игры: ',title,'Карта и зона распознаны по снимку']:
-      ['guess','Зона по выбору: ',title,'Зону не удалось распознать по снимку. Проверь карту, регион и зону'];
+      s.state==='no-area'?['no-area',plain,T('gm.pickArea'),T('gm.pickAreaTip')]:
+      s.state==='starting'?['starting',plain,T('gm.starting'),T('gm.startingTip')]:
+      s.state==='closed'?['closed',T('gm.closedLead'),T('gm.closed'),T('gm.closedTip')]:
+      s.state==='searching'?['searching',T('gm.waitLead'),'M',T('gm.waitTip')]:
+      s.state==='acquiring'?['acquiring',open,T('gm.acquiring',{p:Math.round((s.progress||0)*100)}),T('gm.acquiringTip')]:
+      s.state==='open'&&s.failed?['weak',open,T('gm.failed'),T('gm.failedTip')]:
+      s.state==='open'?['acquiring',open,T('gm.open'),T('gm.openTip')]:
+      s.state==='error'?['error',plain,s.message||T('gm.error'),'']:
+      s.state==='weak'?['weak',T('gm.weakLead'),T('gm.weak'),T('gm.weakTip')]:
+      s.source==='terrain'?['locked',plain,T('gm.byTerrain',{world:worldName(s.world)}),T('gm.byTerrainTip')]:
+      s.recognised?['locked',plain,title,T('gm.recognisedTip')]:
+      ['guess',T('gm.guessLead'),title,T('gm.guessTip')];
     // Marker mode: on the found map the clicks become points; before that it waits for the map.
-    if(s.marking&&s.calibrated)[state,lead,strong,tip]=['marking','Метки · ','ЛКМ по карте игры — точка, ПКМ — разрыв',`${title||worldName(s.world)}. Инструмент и цель выбираются здесь, в окне. Insert — выключить`];
-    else if(s.marking)lead='Метки вкл · '+lead;
+    if(s.marking&&s.calibrated)[state,lead,strong,tip]=['marking',T('gm.markingLead'),T('gm.marking'),T('gm.markingTip',{title:title||worldName(s.world)})];
+    else if(s.marking)lead=T('gm.markingOnLead')+lead;
     const text=$('game-map-status'),b=document.createElement('b');b.textContent=strong;
     $('game-map').dataset.state=state;text.replaceChildren(lead,b);
-    text.title=tip+(s.metresPerPixel?` · 1 px ≈ ${display(s.metresPerPixel)} м`:'');
-    $('pick-area').querySelector('.long').textContent=s.state==='no-area'?'Выбрать область захвата':'Сменить область захвата';
+    text.title=tip+(s.metresPerPixel?T('gm.mpp',{v:display(s.metresPerPixel)}):'');
+    $('pick-area').querySelector('.long').textContent=T(s.state==='no-area'?'area.pick':'area.change');
     if(s.recognised&&s.key)followGameZone(s.key);
     windowBar();
   }
   function windowBar(){
     if(!window.overlay)return;
-    const s=gameMap,mode=document.body.dataset.mode,keys=(...k)=>k.map(x=>`<kbd>${x}</kbd>`).join(' ');
-    const [pill,hint]=mode==='keyboard'?['Клавиатура','Клик по игре вернёт ей клавиатуру и звук']:
-      s.marking?['Метки',s.calibrated?`${keys('ЛКМ')} точка · ${keys('ПКМ')} разрыв · ${keys('Insert')} выкл`:s.state==='no-area'?`Выбери область захвата · ${keys('Insert')} выкл`:s.state==='closed'||s.state==='searching'?`Открой карту в игре ${keys('M')} · ${keys('Insert')} выкл`:`Ищу карту игры… · ${keys('Insert')} выкл`]:
-      mode==='edit'?['Карта',`${keys('Insert')} — метки на карте игры`]:
-      ['Просмотр',`${keys('Insert')} — метки и клики`];
+    const s=gameMap,mode=document.body.dataset.mode,key=x=>`<kbd>${x}</kbd>`,ins=key('Insert');
+    const [pill,hint]=mode==='keyboard'?[T('bar.keyboard'),T('bar.keyboardHint')]:
+      s.marking?[T('bar.markers'),s.calibrated?T('bar.markHint',{lmb:key(T('key.lmb')),rmb:key(T('key.rmb')),wheel:key(T('key.wheel')),ins}):s.state==='no-area'?T('bar.pickAreaHint',{ins}):s.state==='closed'||s.state==='searching'?T('bar.openMapHint',{m:key('M'),ins}):T('bar.searchingHint',{ins})]:
+      mode==='edit'?[T('bar.map'),T('bar.mapHint',{ins})]:
+      [T('bar.view'),T('bar.viewHint',{ins})];
     document.body.classList.toggle('marking',Boolean(s.marking));
     $('overlay-mode').textContent=pill;$('overlay-hint').innerHTML=hint;
   }
@@ -337,8 +337,8 @@ if(typeof document!=='undefined'){
   const POLL_RATES=[15,30,60,120];
   function showMap(on){
     ui.showMap=on;saveUi();document.body.classList.toggle('map-hidden',!on);$('menu-show-map').checked=on;
-    const b=$('toggle-map');b.querySelector('.long').textContent=on?'Скрыть карту':'Показать карту';b.querySelector('.short').textContent=on?'Скрыть':'Показать';
-    b.title=on?'Скрыть карту в окне оверлея: останутся позиция, решение и цели':'Снова показать карту в окне оверлея';
+    const b=$('toggle-map');b.querySelector('.long').textContent=T(on?'map.hide':'map.show');b.querySelector('.short').textContent=T(on?'map.hideShort':'map.showShort');
+    b.title=T(on?'map.hideTitle':'map.showTitle');
     if(on)requestAnimationFrame(renderMap);
   }
   function pollRate(fps){ui.pollFps=fps;saveUi();document.querySelectorAll('[data-fps]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.fps)===fps)));window.overlay?.gameMap?.settings?.({fps});}
@@ -349,7 +349,7 @@ if(typeof document!=='undefined'){
     $('menu-show-map').onchange=()=>showMap($('menu-show-map').checked);
     document.querySelectorAll('[data-fps]').forEach(b=>b.onclick=()=>pollRate(Number(b.dataset.fps)));
     $('menu-pick-area').onclick=()=>{open(false);window.overlay.gameMap.pick();};
-    $('menu-snapshot').onclick=()=>{open(false);if($('game-map').dataset.state==='no-area'){toast('Сначала выбери область карты игры');return;}window.overlay.gameMap.snapshot();toast('Снимок карты игры: откроется папка с файлами');};
+    $('menu-snapshot').onclick=()=>{open(false);if($('game-map').dataset.state==='no-area'){toast(T('toast.pickAreaFirst'));return;}window.overlay.gameMap.snapshot();toast(T('toast.snapshot'));};
     window.overlay.onMode(()=>{open(false);windowBar();});
   }
   $('toggle-map').onclick=()=>showMap(document.body.classList.contains('map-hidden'));

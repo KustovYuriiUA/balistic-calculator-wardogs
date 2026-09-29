@@ -3,6 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
+// Error text in the app's language; required when needed, boot.cjs loads this file before anything else.
+const t = (key, vars) => require('../dist/i18n.js').t(key, vars);
 
 function parseVersion(text) {
   const match = /^v?(\d{1,6})\.(\d{1,6})\.(\d{1,6})$/.exec(String(text).trim());
@@ -20,7 +22,7 @@ const assetName = /^[\w.-]{1,120}$/;
 function validateManifest(manifest) {
   const ok = manifest && typeof manifest === 'object' && parseVersion(manifest.version) && typeof manifest.electron === 'string' && parseVersion(manifest.electron)
     && ['app', 'full'].every(key => manifest[key] && assetName.test(manifest[key].name) && Number.isSafeInteger(manifest[key].size) && manifest[key].size > 0 && sha256.test(manifest[key].sha256));
-  if (!ok) throw new Error('Некорректный манифест обновления.');
+  if (!ok) throw new Error(t('upd.err.manifest'));
   return manifest;
 }
 
@@ -28,23 +30,23 @@ function validateManifest(manifest) {
 function readZip(buffer) {
   let end = -1;
   for (let i = buffer.length - 22; i >= Math.max(0, buffer.length - 65557); i--) if (buffer.readUInt32LE(i) === 0x06054b50) { end = i; break; }
-  if (end < 0) throw new Error('Архив обновления повреждён.');
+  if (end < 0) throw new Error(t('upd.err.zip'));
   const count = buffer.readUInt16LE(end + 10);
   let offset = buffer.readUInt32LE(end + 16);
   const files = [];
   for (let i = 0; i < count; i++) {
-    if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error('Архив обновления повреждён.');
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error(t('upd.err.zip'));
     const method = buffer.readUInt16LE(offset + 10), crc = buffer.readUInt32LE(offset + 16), compressed = buffer.readUInt32LE(offset + 20), size = buffer.readUInt32LE(offset + 24);
     const nameLength = buffer.readUInt16LE(offset + 28), extraLength = buffer.readUInt16LE(offset + 30), commentLength = buffer.readUInt16LE(offset + 32), local = buffer.readUInt32LE(offset + 42);
     const name = buffer.toString('utf8', offset + 46, offset + 46 + nameLength);
     offset += 46 + nameLength + extraLength + commentLength;
     if (name.endsWith('/')) continue;
-    if (!safeEntry(name)) throw new Error('Недопустимый путь в архиве: ' + name);
-    if (buffer.readUInt32LE(local) !== 0x04034b50) throw new Error('Архив обновления повреждён.');
+    if (!safeEntry(name)) throw new Error(t('upd.err.path', {name}));
+    if (buffer.readUInt32LE(local) !== 0x04034b50) throw new Error(t('upd.err.zip'));
     const start = local + 30 + buffer.readUInt16LE(local + 26) + buffer.readUInt16LE(local + 28);
     const raw = buffer.subarray(start, start + compressed);
     const data = method === 0 ? raw : method === 8 ? zlib.inflateRawSync(raw) : null;
-    if (!data || data.length !== size || zlib.crc32(data) !== crc) throw new Error('Файл в архиве повреждён: ' + name);
+    if (!data || data.length !== size || zlib.crc32(data) !== crc) throw new Error(t('upd.err.file', {name}));
     files.push({name, data});
   }
   return files;

@@ -1,7 +1,8 @@
 'use strict';
 // Game-map layer core: find the green control-zone ring on a captured frame of the in-game map,
 // recognise the zone against offline map patches and convert screen pixels to game units.
-// Pure functions shared by layer.js and the tests. Images are {width, height, data: RGBA}.
+// Pure functions shared by layer.js and the tests. Images are {width, height, data: RGBA}; the rim rays also take
+// {width, height, read(x, y, out)} (see pixelReader), so a tracked rim needs no conversion of the whole frame.
 const ZONE_WORLD=163.84;// game units across the map, same as MAP_EXTENT in maps.js
 
 // Frame formats read directly. Capture delivers I420 here (NVIDIA); other GPUs and drivers may give NV12, I420A,
@@ -31,6 +32,34 @@ function frameToRgba(buf,layout,format,width,height,colorSpace,out=new Uint8Clam
   return out;
 }
 
+// One pixel of a VideoFrame.copyTo() output as RGB, read on demand: the same colour maths as frameToRgba, for the
+// few thousand pixels the rim rays look at (converting the whole frame takes ~5 ms). read(x, y, out): out = [r, g, b].
+function pixelReader(buf,layout,format,colorSpace){
+  const clamp=v=>v<0?0:v>255?255:Math.round(v);
+  if(/^(RGB|BGR)[AX]$/.test(format)){
+    const bgr=format[0]==='B',{offset,stride}=layout[0];
+    return (x,y,out)=>{const s=offset+y*stride+x*4;out[0]=buf[s+(bgr?2:0)];out[1]=buf[s+1];out[2]=buf[s+(bgr?0:2)];};
+  }
+  if(!FRAME_FORMATS.test(format))throw new Error('Формат кадра не поддерживается: '+format);
+  const bt601=/smpte170m|bt470bg/.test(colorSpace?.matrix||''),kr=bt601?.299:.2126,kb=bt601?.114:.0722,kg=1-kr-kb;
+  const full=colorSpace?.fullRange===true,ys=full?1:255/219,yo=full?0:16,cs=full?1:255/224,nv=format==='NV12',[Y,U,V]=layout;
+  const sx=format==='I444'?0:1,sy=format==='I420'||format==='I420A'||nv?1:0;
+  return (x,y,out)=>{
+    const c=x>>sx,row=(y>>sy)*U.stride,l=(buf[Y.offset+y*Y.stride+x]-yo)*ys;
+    const cb=((nv?buf[U.offset+row+c*2]:buf[U.offset+row+c])-128)*cs,cr=((nv?buf[U.offset+row+c*2+1]:buf[V.offset+(y>>sy)*V.stride+c])-128)*cs;
+    const r=l+2*(1-kr)*cr,b=l+2*(1-kb)*cb;out[0]=clamp(r);out[1]=clamp((l-kr*r-kb*b)/kg);out[2]=clamp(b);
+  };
+}
+
+// Luminance of a YUV copy straight from its Y plane, {width, height, data: Float32Array} (null for RGB copies).
+// The terrain match is a normalised correlation, so the limited range of Y (16…235) makes no difference.
+function frameLuma(buf,layout,format,width,height,out=new Float32Array(width*height)){
+  if(/^(RGB|BGR)[AX]$/.test(format))return null;
+  const {offset,stride}=layout[0];
+  for(let y=0;y<height;y++){const row=offset+y*stride,o=y*width;for(let x=0;x<width;x++)out[o+x]=buf[row+x];}
+  return {width,height,data:out};
+}
+
 // Rim pixels are saturated and bright, of any hue: the zone rim is green by default but can change colour.
 // The tinted fill inside the rim and the grey map stay well below. Hue in degrees, −1 for other pixels.
 function hueOf(r,g,b){const max=Math.max(r,g,b),min=Math.min(r,g,b),c=max-min;if(max<110||c<50)return -1;return 60*(max===r?((g-b)/c+6)%6:max===g?(b-r)/c+2:(r-g)/c+4);}
@@ -52,7 +81,7 @@ function huePeaks(hues,{min=150,count=4}={}){
 // across the rough circle: the last sharp drop outwards, located where it passes half the local peak. Samples of
 // other hues count as grey. Returns the rim points and how many rays saw the rim area.
 function rimRays(img,c,hue,{rays=720,reach=30}={}){
-  const {width:w,height:h,data:d}=img,pts=[],steps=reach*4+1;let visible=0;
+  const {width:w,height:h}=img,read=img.read,d=read?null:img.data,px=[0,0,0],pts=[],steps=reach*4+1;let visible=0;
   const sat=new Float32Array(steps);
   for(let k=0;k<rays;k++){
     const a=k/rays*2*Math.PI,cos=Math.cos(a),sin=Math.sin(a);
@@ -60,7 +89,7 @@ function rimRays(img,c,hue,{rays=720,reach=30}={}){
     visible++;let max=0;
     for(let i=0;i<steps;i++){
       const t=-reach+i/2,x=Math.floor(c.cx+(c.r+t)*cos),y=Math.floor(c.cy+(c.r+t)*sin);let s=0;
-      if(x>=0&&y>=0&&x<w&&y<h){const o=(y*w+x)*4,r=d[o],g=d[o+1],b=d[o+2],mx=Math.max(r,g,b),mn=Math.min(r,g,b);if(mx-mn>=12){const hh=60*(mx===r?((g-b)/(mx-mn)+6)%6:mx===g?(b-r)/(mx-mn)+2:(r-g)/(mx-mn)+4);if(hueGap(hh,hue)<=HUE_SPREAD+10)s=mx-mn;}}
+      if(x>=0&&y>=0&&x<w&&y<h){let r,g,b;if(read){read(x,y,px);r=px[0];g=px[1];b=px[2];}else{const o=(y*w+x)*4;r=d[o];g=d[o+1];b=d[o+2];}const mx=Math.max(r,g,b),mn=Math.min(r,g,b);if(mx-mn>=12){const hh=60*(mx===r?((g-b)/(mx-mn)+6)%6:mx===g?(b-r)/(mx-mn)+2:(r-g)/(mx-mn)+4);if(hueGap(hh,hue)<=HUE_SPREAD+10)s=mx-mn;}}
       sat[i]=s;if(s>max)max=s;
     }
     if(max<30)continue;
@@ -150,26 +179,36 @@ function ringCandidates(img,{minPoints=60,minCoverage=.15}={}){
     const pts=ringPoints(small,hue,hues);if(pts.length/2<minPoints/k)continue;
     const found1=ransacCircle(pts,{maxR,minR:12/k,iterations:pts.length>20000?300:160,rough:true});
     if(!found1||found1.inliers<minPoints/k||found1.coverage<minCoverage||found1.rms>1.6)continue;
-    const rough={cx:found1.cx*k,cy:found1.cy*k,r:found1.r*k};
-    // Two passes on the full frame: the second from the circle the first found, so the rays sit square on the rim.
-    let c=rough,rim=null;
-    for(let pass=0;pass<2&&c;pass++){
-      // Coarse then fine: 360 rays ±24 px from the rough circle, then 720 rays ±16 px from the first fit (the edge
-      // lies a few px outside the rim and must be seen with 8 px beyond it).
-      rim=rimRays(img,c,hue,pass===0?{rays:360,reach:24}:{rays:720,reach:16});const n=rim.pts.length/2;if(n<(pass===0?15:30))break;
-      let idx=[...Array(n).keys()],f=fitCircle(rim.pts,idx);if(!f)break;
-      for(const tol of [3,1.5]){f=refineCircle(rim.pts,idx,f);idx=inliersOf(rim.pts,f,tol);if(idx.length<30){f=null;break;}}
-      c=f&&{...refineCircle(rim.pts,idx,f),idx};
-    }
-    if(!c?.idx||c.r<12)continue;
-    let square=0;const bins=new Uint8Array(72);
-    for(const i of c.idx){const dx=rim.pts[2*i]-c.cx,dy=rim.pts[2*i+1]-c.cy;square+=(Math.hypot(dx,dy)-c.r)**2;bins[Math.min(71,Math.floor((Math.atan2(dy,dx)+Math.PI)/(2*Math.PI)*72))]=1;}
-    const rms=Math.sqrt(square/c.idx.length),coverage=bins.reduce((s,v)=>s+v,0)/72,continuity=c.idx.length/Math.max(1,rim.visible);
-    // A disc edge, not foliage or an icon: round (small residual), continuous along the part on the frame.
-    if(rms>1.5||coverage<minCoverage||continuity<.6)continue;
-    found.push({cx:c.cx,cy:c.cy,r:c.r,hue,inliers:c.idx.length,rms,coverage,continuity,weak:coverage<.35});
+    const rim=rimFromRays(img,{cx:found1.cx*k,cy:found1.cy*k,r:found1.r*k},hue,{minCoverage});
+    if(rim)found.push(rim);
   }
   return found.sort((a,b)=>b.r-a.r);
+}
+// The rim across a rough circle: two passes of rays on the full frame, the second from the circle the first found,
+// so the rays sit square on the rim. Coarse then fine: 360 rays ±reach px (24 by default), then 720 rays ±16 px from
+// the first fit (the edge lies a few px outside the rim and must be seen with 8 px beyond it). null unless it is a
+// disc edge, not foliage or an icon: round (small residual), continuous along the part on the frame.
+function rimFromRays(img,rough,hue,{minCoverage=.15,reach=24}={}){
+  let c=rough,rim=null;
+  for(let pass=0;pass<2&&c;pass++){
+    rim=rimRays(img,c,hue,pass===0?{rays:360,reach}:{rays:720,reach:16});const n=rim.pts.length/2;if(n<(pass===0?15:30))return null;
+    let idx=[...Array(n).keys()],f=fitCircle(rim.pts,idx);if(!f)return null;
+    for(const tol of [3,1.5]){f=refineCircle(rim.pts,idx,f);idx=inliersOf(rim.pts,f,tol);if(idx.length<30)return null;}
+    c={...refineCircle(rim.pts,idx,f),idx};
+  }
+  if(!c?.idx||c.r<12)return null;
+  let square=0;const bins=new Uint8Array(72);
+  for(const i of c.idx){const dx=rim.pts[2*i]-c.cx,dy=rim.pts[2*i+1]-c.cy;square+=(Math.hypot(dx,dy)-c.r)**2;bins[Math.min(71,Math.floor((Math.atan2(dy,dx)+Math.PI)/(2*Math.PI)*72))]=1;}
+  const rms=Math.sqrt(square/c.idx.length),coverage=bins.reduce((s,v)=>s+v,0)/72,continuity=c.idx.length/Math.max(1,rim.visible);
+  if(rms>1.5||coverage<minCoverage||continuity<.6)return null;
+  return {cx:c.cx,cy:c.cy,r:c.r,hue,inliers:c.idx.length,rms,coverage,continuity,weak:coverage<.35};
+}
+// The rim of the last frame, found again near where it should be now: the circle moved on by as much as it moved
+// between the two frames before (a steady pan or zoom), then the rays of rimFromRays, wide enough for the rest of
+// the motion. About a tenth of a full search; null when it moved too far or is gone (search the whole frame then).
+function trackRing(img,prev,before=null,{minCoverage=.15}={}){
+  const guess=before?{cx:2*prev.cx-before.cx,cy:2*prev.cy-before.cy,r:Math.max(12,2*prev.r-before.r)}:{cx:prev.cx,cy:prev.cy,r:prev.r};
+  return rimFromRays(img,guess,prev.hue,{minCoverage,reach:Math.max(24,Math.round(guess.r*.12))});
 }
 // The rim on this frame, or null: the largest rim-like circle, or the largest of the given hue.
 function detectRing(img,{hue=null,...options}={}){return ringCandidates(img,options).find(c=>hue===null||hueGap(c.hue,hue)<=HUE_SPREAD)||null;}
@@ -254,5 +293,13 @@ function recogniseZone(sample,patches){
   for(const [key,patch]of Object.entries(patches)){const score=correlate(sample,patch);if(score===null)continue;if(!best||score>best.score){if(best)second=best.score;best={key,score};}else if(score>second)second=score;}
   return best&&{...best,margin:best.score-second,confident:best.score>=.4&&best.score-second>=.15};
 }
+// The zone a rim is by where a terrain fix puts it: a zone of that map at that place (within 60 m or 4 frame px)
+// and of that size (within 8 %). Two independent findings agreeing, for a rim the patches cannot vouch for: small on
+// a zoomed-out map, or under icons. zones: MAP_LANDMARKS[world].zones; fix: {x0, y0, s} of the same frame.
+function zoneAtPlace(zones,fix,ring){
+  const x=fix.x0+ring.cx*fix.s/100,y=fix.y0-ring.cy*fix.s/100,radius=ring.r*fix.s;let best=null;
+  for(const z of zones){const d=Math.hypot(x-z.pos[0]*ZONE_WORLD,y-(1-z.pos[1])*ZONE_WORLD)*100;if(d<=Math.max(60,4*fix.s)&&Math.abs(radius-z.radiusM)<=z.radiusM*.08&&(!best||d<best.d))best={z,d};}
+  return best?.z||null;
+}
 function decodePatch(text){const s=atob(text),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
-if(typeof module!=='undefined')module.exports={ZONE_WORLD,FRAME_FORMATS,frameToRgba,hueOf,isRingColor,hueMap,halfImage,ringPoints,huePeaks,rimRays,findMapPanel,lineShare,edgeStrips,panelOpen,fitCircle,refineCircle,ransacCircle,ringCandidates,detectRing,ringTransform,pixelToWorld,worldToPixel,discSample,correlate,recogniseZone,decodePatch};
+if(typeof module!=='undefined')module.exports={ZONE_WORLD,FRAME_FORMATS,frameToRgba,pixelReader,frameLuma,zoneAtPlace,hueOf,isRingColor,hueMap,halfImage,ringPoints,huePeaks,rimRays,findMapPanel,lineShare,edgeStrips,panelOpen,fitCircle,refineCircle,ransacCircle,ringCandidates,rimFromRays,trackRing,detectRing,ringTransform,pixelToWorld,worldToPixel,discSample,correlate,recogniseZone,decodePatch};

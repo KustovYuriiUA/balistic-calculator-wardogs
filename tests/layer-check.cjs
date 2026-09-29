@@ -12,6 +12,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const root=path.resolve(__dirname,'..'),data=fs.mkdtempSync(path.join(root,'.test-output','layer-'));
 fs.mkdirSync(data,{recursive:true});
 app.setPath('userData',data);
+fs.writeFileSync(path.join(data,'settings.json'),JSON.stringify({language:'ru'}));// the texts below are Russian
 // Do not take Insert from a running copy of the app; keep the handler to press it from the test.
 const hotkeys={};require('electron').globalShortcut.register=(key,fn)=>{hotkeys[key]=fn;return true;};
 const wait=async(label,fn,timeout=15000,step=150)=>{const end=Date.now()+timeout;for(;;){const value=await fn();if(value)return value;if(Date.now()>end)throw new Error('Timed out: '+label);await new Promise(r=>setTimeout(r,step));}};
@@ -30,6 +31,9 @@ app.whenReady().then(async()=>{
   // leaving only the terrain (the panel's grey frame stays).
   fs.writeFileSync(path.join(data,'game.html'),`<!doctype html><body style="margin:0;overflow:hidden;background:#000"><canvas id="map" width="1251" height="1085" style="display:block"></canvas><script>
     const c=document.getElementById('map'),g=c.getContext('2d'),img=new Image();img.onload=()=>g.drawImage(img,0,0);img.src='game.webp';
+    let blink=0;window.animate=on=>{clearInterval(blink);const spots=[[200,125],[930,125],[200,860],[930,860],[560,110],[190,500]],saved=spots.map(([x,y])=>g.getImageData(x,y,60,60));let lit=false;
+      const paint=()=>{lit=!lit;spots.forEach(([x,y],i)=>{if(lit){g.fillStyle=i%2?'#e0e4e8':'#101214';g.fillRect(x,y,60,60);}else g.putImageData(saved[i],x,y);});};
+      if(on)blink=setInterval(paint,70);else if(lit)paint();};
     window.hideRim=()=>{const d=g.getImageData(0,0,c.width,c.height),p=d.data;for(let i=0;i<p.length;i+=4){const [r,gg,b]=[p[i],p[i+1],p[i+2]];const mx=Math.max(r,gg,b),mn=Math.min(r,gg,b);if(mx===gg&&mx-mn>=12){const l=.3*r+.59*gg+.11*b;p[i]=p[i+1]=p[i+2]=l;}}g.putImageData(d,0,0);};
   </script>`);
   const stand=new BrowserWindow({...game,frame:false,resizable:false,focusable:false,skipTaskbar:true,show:false,useContentSize:true});
@@ -65,7 +69,8 @@ app.whenReady().then(async()=>{
   await wait('a search worker per map',async()=>(await read(layer,'window.layerStats')).workers===3);
   // Screenshot pixel → layer window pixel, wherever the layer ended up; game units → screenshot pixels on the grid.
   const px=(x,y)=>{const r=layer.getBounds();return {x:Math.round(537.5+(x-70)*74.98-(r.x-game.x)),y:Math.round(760.5-(y-100)*74.98-(r.y-game.y))};};
-  const readoutAt=async(x,y)=>{layer.webContents.sendInputEvent({type:'mouseMove',x:10,y:10});layer.webContents.sendInputEvent({type:'mouseMove',...px(x,y)});const text=await wait('cursor readout',()=>read(layer,'document.getElementById("readout").hidden?"":document.getElementById("readout").textContent'));const [,rx,ry]=text.match(/x([\d.]+)\s+y([\d.]+)/).map(Number);return {text:text.trim(),x:rx,y:ry};};
+  // Game units the layer's calibration gives at a point of the game map (the layer shows no readout of its own).
+  const readoutAt=async(x,y)=>{const p=px(x,y),r=await wait('calibration at a point',()=>read(layer,`window.layerAt(${p.x},${p.y})`));return {text:`x${r.x.toFixed(2)}  y${r.y.toFixed(2)}`,x:r.x,y:r.y};};
   // Grid line x=70 is column 537 and y=100 row 760 of the screenshot.
   const readout=await readoutAt(70,100);
   console.log('readout at grid 70/100:',readout.text);
@@ -89,6 +94,33 @@ app.whenReady().then(async()=>{
   console.log('placed on the game map: me',me.join(', '),'· target',goal.join(', '),'· azimuth',await read(overlay,'document.getElementById("fs-azimuth").textContent'));
   assert.ok(Math.hypot(me[0]-70,me[1]-103)<.05&&Math.hypot(goal[0]-72,goal[1]-101)<.05,'points within 5 m of where the game map was clicked');
   assert.equal(await wait('pins drawn over the game map',async()=>{const n=await pins();return n===4&&n;}),4,'me, target, corrected aim, impact');
+  // A wheel in marker mode is for the game's map: the layer hands the mouse over and marker mode stays on. The mouse
+  // comes back once the cursor moves off to aim, or once the map has stood still for a moment.
+  const passing=()=>read(layer,'document.body.classList.contains("passing")');
+  // Icons blink on the game's map as in the game: the picture never stands still, the map itself does.
+  await stand.webContents.executeJavaScript('window.animate(true)');
+  const wheel=p=>layer.webContents.sendInputEvent({type:'mouseWheel',...p,deltaX:0,deltaY:120,wheelTicksY:1,canScroll:true});
+  wheel(px(71,102));
+  await wait('a wheel hands the mouse to the game',passing,3000,50);
+  assert.equal((await status())[0],'marking','marker mode stays on during the zoom');
+  layer.webContents.sendInputEvent({type:'mouseMove',...px(73.5,99.5)});
+  await wait('moving off to aim takes the mouse back',async()=>!await passing(),3000,50);
+  wheel(px(71,102));await wait('a second wheel',passing,3000,50);
+  const stillFrom=Date.now();await wait('a still map takes the mouse back',async()=>!await passing(),5000,50);
+  console.log(`wheel in marker mode: handed to the game, back on a move and after ${Date.now()-stillFrom} ms of a still map`);
+  // A drag hands the mouse over the same way (the next drag moves the game's map) and places no point; the mouse comes
+  // back once the cursor and the map have stood still for a moment.
+  const targets=()=>read(overlay,'document.querySelectorAll(".target-row").length'),before=await targets(),dragAt=px(71,102);
+  layer.webContents.sendInputEvent({type:'mouseDown',...dragAt,button:'left',clickCount:1});
+  for(let i=1;i<=4;i++)layer.webContents.sendInputEvent({type:'mouseMove',x:dragAt.x+i*6,y:dragAt.y+i*4,modifiers:['leftButtonDown']});
+  await wait('a drag hands the mouse to the game',passing,3000,50);
+  layer.webContents.sendInputEvent({type:'mouseUp',x:dragAt.x+24,y:dragAt.y+16,button:'left',clickCount:1});
+  assert.equal(await read(layer,'document.getElementById("pass-hint").hidden'),false,'the hint says the game has the mouse');
+  const dragFrom=Date.now();await wait('a still cursor and map take the mouse back',async()=>!await passing(),6000,50);
+  await new Promise(r=>setTimeout(r,300));
+  assert.equal(await targets(),before,'a drag places no point');
+  console.log(`drag in marker mode: handed to the game, back after ${Date.now()-dragFrom} ms of a still cursor and map, no point placed (icons blinking all along)`);
+  await stand.webContents.executeJavaScript('window.animate(false)');
   hotkeys.Insert();
   await wait('Insert again ends marker mode',async()=>(await status())[0]==='locked'&&!await read(layer,'document.body.classList.contains("marking")'));
   assert.equal(await mode(),'edit','the map is still open: the overlay stays clickable');noKeyboard('after marker mode');
@@ -122,6 +154,9 @@ app.whenReady().then(async()=>{
   await wait('map closed',async()=>(await status())[0]==='closed'&&await pins()===0,5000,20);
   const closeMs=Date.now()-closedAt;
   console.log(`map closed → points gone in ${closeMs} ms · status:`,(await status())[1]);
+  // Nothing in the middle of the screen while the map is closed.
+  const busyShown=()=>read(byPage("layer.html"),"!document.getElementById(\"busy\").hidden");
+  for(let i=0;i<8;i++){assert.equal(await busyShown(),false,"no search box over a closed map");await new Promise(r=>setTimeout(r,150));}
   assert.ok(closeMs<600,'points gone within 0.6 s of closing the map');
   await wait('overlay back to viewing',async()=>await mode()==='view'&&read(overlay,'document.body.classList.contains("view-only")'));
   const memory=await wait('calibration remembered',()=>fs.existsSync(memoryFile)&&JSON.parse(fs.readFileSync(memoryFile,'utf8')));
@@ -164,11 +199,12 @@ app.whenReady().then(async()=>{
   assert.equal(overlay.isVisible(),true,'overlay back after picking');
   layer=await wait('new layer',()=>{const l=byPage('layer.html');return l&&l!==layer&&!l.webContents.isLoading()&&l;});
   const searchFrom=Date.now();await setMap('document.getElementById("map").style.visibility="visible"');
-  const seen=[];
-  const [,byTerrain]=await wait('found by the terrain search',async()=>{const s=await status();if(!seen.includes(s[1]))seen.push(s[1]);return s[0]==='locked'&&s[1].includes('по местности')&&s;},20000,40).catch(async error=>{console.log('status:',await status(),'seen:',seen,'layer:',await read(layer,'JSON.stringify(window.layerStats)'));throw error;});
+  const seen=[];let boxSeen=false;
+  const [,byTerrain]=await wait('found by the terrain search',async()=>{const s=await status();if(!seen.includes(s[1]))seen.push(s[1]);if(await busyShown())boxSeen=true;return s[0]==='locked'&&s[1].includes('по местности')&&s;},20000,40).catch(async error=>{console.log('status:',await status(),'seen:',seen,'layer:',await read(layer,'JSON.stringify(window.layerStats)'));throw error;});
   const searchStats=await read(layer,'window.layerStats');
   console.log(`no memory, no rim → ${byTerrain} in ${Date.now()-searchFrom} ms · states seen: ${seen.join(' → ')} · searches: ${JSON.stringify(searchStats.searches)}`);
   assert.ok(seen.some(t=>t.includes('ищу по местности')),'the search shows its progress');
+  assert.equal(boxSeen,false,'a background search (map state unknown, no marker mode) puts nothing in the middle of the screen');
   const found=await readoutAt(70,100);
   assert.ok(Math.abs(found.x-70)<.05&&Math.abs(found.y-100)<.05,'found by the search on the game grid within 5 m: '+found.text);
   await wait('picked area fitted (it is the panel already)',()=>JSON.parse(fs.readFileSync(path.join(data,'map-area.json'),'utf8')).snapped);

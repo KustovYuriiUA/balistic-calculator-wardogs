@@ -1,13 +1,15 @@
 'use strict';
 // Game-map layer: capture the in-game map panel and calibrate it to game units, by the zone rim when it is in view
-// and by the terrain (offline satellite map) otherwise; recognise the zone, draw the overlay's points over the
-// in-game map and show game coordinates under the cursor. Click-through, except in marker mode (Insert) while the
-// map is calibrated, when clicks become points in the overlay. It never takes the keyboard. Excluded from capture.
+// and by the terrain (offline satellite map) otherwise; recognise the zone and draw the overlay's points over the
+// in-game map. Click-through, except in marker mode (Insert) while the map is calibrated, when clicks become points
+// in the overlay, and a wheel or a drag still moves the game's map. It never takes the keyboard. Excluded from capture.
 (()=>{
-  const $=id=>document.getElementById(id),api=window.mapLayer,NS='http://www.w3.org/2000/svg';
+  const $=id=>document.getElementById(id),api=window.mapLayer,NS='http://www.w3.org/2000/svg',T=I18N.t;
+  // Our own errors carry text for the overlay's status line; anything else is a capture error of the browser.
+  const own=key=>Object.assign(new Error(T(key)),{own:true});
   const NAMES={kavkazi:'Kavkazi',europe:'Europe',northamerica:'North America'},WORLDS=Object.keys(MAP_LANDMARKS);
   const zones=new Map();
-  for(const [world,meta]of Object.entries(MAP_LANDMARKS))for(const zone of meta.zones)zones.set(`${world}/${zone.id}`,{world,zone,title:[NAMES[world]||world,meta.rotations.find(r=>r.id===zone.rotation)?.name||zone.rotation,zone.name==='Default'?'Основная':zone.name].join(' · ')});
+  for(const [world,meta]of Object.entries(MAP_LANDMARKS))for(const zone of meta.zones)zones.set(`${world}/${zone.id}`,{world,zone,get title(){return [NAMES[world]||world,meta.rotations.find(r=>r.id===zone.rotation)?.name||zone.rotation,zone.name==='Default'?T('zone.main'):zone.name].join(' · ');}});
   const patches=Object.fromEntries(Object.entries(ZONE_PATCHES.patches).map(([key,text])=>[key,decodePatch(text)]));
   // Frame pacing, the poll rate (a setting, 60 by default) at most: every frame while the map is calibrated (unchanged
   // frames cost nothing) and in the first 1.5 s after it opened, up to 30 a second while it is open and not found
@@ -18,17 +20,32 @@
   // Wide terrain searches (one worker per map, ~0.3–0.5 s): soon after the map opens and then backing off while it
   // stays open and unknown; rarely while its state is unknown; never while it is closed.
   const OPEN_SEARCH_MS=[250,1000,2000,4000,8000],BACKGROUND_MS=[4000,15000];
-  let fps=60,config=null,selected=null,stream=null,restarting=false,crop=null,cursor=null,sent='',scene=null,marking=false,drawn='';
+  let fps=60,config=null,selected=null,stream=null,restarting=false,crop=null,sent='',scene=null,marking=false,drawn='';
   // mapOpen: from the map's frame on the edges of the fitted area; null until the area is fitted.
-  let mapOpen=null,failures=0,probeAt=0,misfits=0,lastEdges=null;
+  let mapOpen=null,openedAt=0,failures=0,probeAt=0,misfits=0,lastEdges=null;
   let ring=null,candidate=null,lostAt=0,recognised=null,vote={key:null,count:0},checkedAt=0,lastSig=null,lastCandidates=[],forced=0;
+  // calMovedAt: when the calibration last moved by more than MOVE_PX (the game's map panned or zoomed). The picture
+  // alone cannot tell: the game animates icons and units on a map that stands still. probePoints: the world points under
+  // the frame's centre and corner on the last analysed frame.
+  const MOVE_PX=1.5;let calMovedAt=0,probePoints=null;
+  function watchMotion(now){
+    const cal=crop&&calibration();if(!cal){probePoints=null;return;}
+    const at=[[crop.rect.width/2,crop.rect.height/2],[0,0]];
+    if(probePoints&&probePoints.some((p,i)=>{const q=cal.toPixel(p.x,p.y);return Math.hypot(q.x-at[i][0],q.y-at[i][1])>MOVE_PX;}))calMovedAt=now;
+    probePoints=at.map(([a,b])=>cal.toWorld(a,b));
+  }
+  // The rim is tracked near where it was (a tenth of a full search) while it is recognised; a full search runs at
+  // least every FULL_MS all the same. ringAt: when ring was last seen; ringTrail: the ring one frame earlier, whose
+  // motion predicts the next position.
+  const FULL_MS=2000;let fullAt=0,ringAt=0,ringTrail=null;
   // rimHue: hue of the rim recognised as the zone; until then no circle calibrates (marker circles look alike).
   let rimHue=null,rimVerified=false,terrain=null,lastWorld=null,lastImg=null,acquireAt=0,acquireWait=BACKGROUND_MS[0];
   // memory: the last calibration (map, zone, fix), kept by the app across sessions; tried on every frame until
   // memoryUntil after the map opens (once at start, while open or closed is not known).
   let memory=null,memoryUntil=Infinity,rememberedAt=0;
   // Timings for the troubleshooting snapshot: when each step first happened (ms since the page started), map loads.
-  window.layerStats={frames:0,skipped:0,ms:0,acquisitions:0,timeline:{},loads:{},searches:[]};
+  // rim: ms of the rim step (tracked or searched) and how often each ran.
+  window.layerStats={frames:0,skipped:0,ms:0,acquisitions:0,timeline:{},loads:{},searches:[],rim:{ms:0,tracked:0,searched:0}};
   const mark=name=>{window.layerStats.timeline[name]??=Math.round(performance.now());};
   const interval=()=>ring||terrain||mapOpen&&performance.now()<memoryUntil?1000/fps:Math.max(mapOpen===false?CLOSED_MS:mapOpen?OPEN_MS:WAIT_MS,1000/fps);
 
@@ -94,7 +111,8 @@
   }
   const rawUnchanged=(a,b)=>{let d=0;for(let i=0;i<a.length;i++)d+=Math.abs(a[i]-b[i]);return d/a.length<1.5;};
   // A coarse fingerprint of the frame: an unchanged map needs no new terrain search.
-  const signature=img=>{const out=new Float32Array(256);for(let j=0,k=0;j<16;j++)for(let i=0;i<16;i++,k++){const o=(Math.floor((j+.5)*img.height/16)*img.width+Math.floor((i+.5)*img.width/16))*4;out[k]=img.data[o]+img.data[o+1]+img.data[o+2];}return out;};
+  // From the luma when the frame gives it (three times the luma stands for the sum of R, G and B).
+  const signature=img=>{const out=new Float32Array(256),L=img.luma?.data;for(let j=0,k=0;j<16;j++)for(let i=0;i<16;i++,k++){const p=Math.floor((j+.5)*img.height/16)*img.width+Math.floor((i+.5)*img.width/16);out[k]=L?3*L[p]:img.data[p*4]+img.data[p*4+1]+img.data[p*4+2];}return out;};
   const unchanged=(a,b)=>{let d=0;for(let i=0;i<a.length;i++)d+=Math.abs(a[i]-b[i]);return d/a.length<6;};
 
   // A rectangle of the frame in a format frameToRgba reads: the frame's own, or RGBX converted by the browser for
@@ -129,10 +147,10 @@
   }
   // Opened: the last calibration is tried on the first frame, the rim is checked at once, the terrain search follows
   // shortly unless the rim locks first. Closed: the points go at once; what was found is remembered for next time.
-  function opened(now){failures=0;misfits=0;memoryUntil=now+MEMORY_MS;checkedAt=0;lastSig=null;acquireAt=now+OPEN_SEARCH_MS[0];}
+  function opened(now){openedAt=now;failures=0;misfits=0;memoryUntil=now+MEMORY_MS;checkedAt=0;lastSig=null;acquireAt=now+OPEN_SEARCH_MS[0];}
   function closed(){
     if(terrain)remember();
-    ring=null;candidate=null;lostAt=0;terrain=null;rimVerified=false;rimHue=null;
+    ring=null;ringTrail=null;candidate=null;lostAt=0;terrain=null;rimVerified=false;rimHue=null;
     const key=recognised||vote.key;vote={key,count:key?1:0};// one agreeing check re-verifies the same zone
     if(job)endSearch(null);
   }
@@ -145,7 +163,7 @@
   // Returns false when the frame was skipped as unchanged.
   async function analyse(frame,now){
     const c=cropFor(frame),{width,height}=c.rect;
-    if(width<64||height<64)throw new Error('Область карты вне экрана');
+    if(width<64||height<64)throw own('layer.offscreen');
     // Closed: only the map's frame is checked (and a probe once a second), nothing else.
     let edges=false;
     if(config.snapped&&mapOpen===false){
@@ -157,27 +175,52 @@
     // rim waits for its confirming frame or its zone check, a lost rim or terrain waits to count as gone, a terrain
     // found by a search waits to be refined, or a search is due.
     const sig=rawSignature(buf,layout,format,width,height);
-    const settled=!(memory&&!terrain&&now<memoryUntil)&&!(candidate&&!ring)&&!(ring&&!rimVerified)&&!(ring&&lostAt)&&!terrain?.lostAt&&!(terrain?.fresh&&hasFine(terrain.world))&&(Boolean(crop&&calibration())||now<acquireAt);
+    const panelDue=!config.snapped&&now>=panelAt&&Boolean(ring&&rimVerified||terrain);
+    const settled=!panelDue&&!terrain?.rough&&!(memory&&!terrain&&now<memoryUntil)&&!(candidate&&!ring)&&!(ring&&!rimVerified)&&!(ring&&lostAt)&&!terrain?.lostAt&&!(terrain?.fresh&&hasFine(terrain.world))&&(Boolean(crop&&calibration())||now<acquireAt);
     if(forced>0)forced--;else if(lastSig&&settled&&rawUnchanged(sig,lastSig))return false;
     lastSig=sig;
     if(config.snapped&&!edges){
       openState(await frameOpen(frame,c),now);
       if(mapOpen===false){crop=c;return true;}
     }
-    const img={width,height,data:copy.rgba()};
+    // RGBA of the whole frame only when something needs it (a search, the zone check, the terrain, a snapshot): the
+    // tracked rim reads its pixels straight from the copy.
+    const img={width,height,read:pixelReader(buf,layout,format,frame.colorSpace),rgba:null,lum:undefined,
+      get data(){return this.rgba??=copy.rgba();},
+      // The terrain's luminance straight from the Y plane (RGB copies: from the RGBA), in a reused buffer.
+      get luma(){if(this.lum===undefined){const n=width*height;if(pool.luma?.length!==n)pool.luma=new Float32Array(n);this.lum=frameLuma(buf,layout,format,width,height,pool.luma)||lumaOf(this);}return this.lum;}};
     crop=c;lastImg=img;
-    // Circles of any colour; once a rim is recognised as the zone only circles of its hue count as that rim.
-    const candidates=ringCandidates(img),found=rimVerified?candidates.find(x=>hueGap(x.hue,rimHue)<=HUE_SPREAD)||null:candidates[0]||null;
-    lastCandidates=candidates.map(x=>({cx:+x.cx.toFixed(1),cy:+x.cy.toFixed(1),r:+x.r.toFixed(1),hue:x.hue,rms:+x.rms.toFixed(2),coverage:+x.coverage.toFixed(2),continuity:+x.continuity.toFixed(2)}));
+    // Circles of any colour; once a rim is recognised as the zone only circles of its hue count as that rim. A
+    // recognised rim is tracked from the last frames; a full search when tracking loses it, and every FULL_MS.
+    const rimFrom=performance.now(),rimStats=window.layerStats.rim;let found=null;
+    if(ring&&rimVerified&&now-fullAt<FULL_MS){
+      const steady=ringTrail&&now-ringAt<150&&ringAt-ringTrail.at<150?ringTrail:null;
+      found=trackRing(img,ring,steady);if(found)rimStats.tracked++;
+    }
+    // While the terrain holds the calibration and no circle is in sight, the whole frame is searched for the rim 4
+    // times a second (it takes ~15 ms), and on every frame once a circle turned up (it must show on two in a row).
+    const searchDue=ring||candidate||!terrain||terrain.lostAt||now-fullAt>=250;
+    if(!found&&searchDue){
+      const candidates=ringCandidates(img);fullAt=now;rimStats.searched++;
+      found=rimVerified?candidates.find(x=>hueGap(x.hue,rimHue)<=HUE_SPREAD)||null:candidates[0]||null;
+      lastCandidates=candidates.map(x=>({cx:+x.cx.toFixed(1),cy:+x.cy.toFixed(1),r:+x.r.toFixed(1),hue:x.hue,rms:+x.rms.toFixed(2),coverage:+x.coverage.toFixed(2),continuity:+x.continuity.toFixed(2)}));
+    }
+    rimStats.ms=rimStats.ms*.9+(performance.now()-rimFrom)*.1;
     // Locking on needs two frames with the same circle: a lucky fit on the 3D world does not repeat.
     const same=candidate&&Math.hypot(found?.cx-candidate.cx,found?.cy-candidate.cy)<4&&Math.abs(found.r-candidate.r)<Math.max(3,found.r*.02);
     candidate=found;
     if(found&&(ring||same)){
-      ring=found;lostAt=0;
+      ringTrail=ring&&{cx:ring.cx,cy:ring.cy,r:ring.r,at:ringAt};ring=found;ringAt=now;lostAt=0;
       if(!rimVerified||now-checkedAt>RECHECK_MS){checkedAt=now;recognise(img,found);}
-    }else if(!found){if(!lostAt)lostAt=now;if(now-lostAt>LOSE_MS){ring=null;rimVerified=false;rimHue=null;vote={key:recognised,count:recognised?1:0};}}
+    }else if(!found){if(!lostAt)lostAt=now;if(now-lostAt>LOSE_MS){ring=null;ringTrail=null;rimVerified=false;rimHue=null;vote={key:recognised,count:recognised?1:0};}}
+    // A rim the patches cannot vouch for is the zone all the same when the terrain puts it where a zone of that map
+    // is, of that size (a zoomed-out map, where the disc is small and icons cover much of it).
+    if(ring&&!rimVerified&&terrain&&!terrain.lostAt){
+      const z=zoneAtPlace(MAP_LANDMARKS[terrain.world]?.zones||[],terrain.fix,ring),key=z&&terrain.world+'/'+z.id;
+      if(key&&zones.has(key)){recognised=key;rimVerified=true;rimHue=ring.hue;vote={key,count:2};checkedAt=now;}
+    }
     const entry=rimEntry();
-    if(!config.snapped&&panelTries<3&&(entry||terrain)){panelTries++;if(await fitPanel(frame,c))panelTries=3;}
+    if(!config.snapped&&now>=panelAt&&(entry||terrain)){panelTries++;if(await fitPanel(frame,c))panelAt=Infinity;else if(panelTries%3===0)panelAt=now+8000;}
     if(entry){
       // The rim calibrates; the terrain tracker follows it, ready for when the rim leaves the view.
       if(job)endSearch(null);
@@ -189,27 +232,30 @@
     if(!entry&&!terrain&&!job&&now>=acquireAt)search(img);
     return true;
   }
-  // Once per drawn area, when the map is calibrated (so it is surely open): find the square map panel in the area
+  // When the map is calibrated (so it is surely open) and the area not fitted yet: find the square map panel in the area
   // grown by 8 % on each side and have the overlay fit the area to it — nothing around the map is analysed then,
-  // and the panel's frame tells open from closed. Up to three tries on later calibrated frames.
-  let panelTries=0;
+  // and the panel's frame tells open from closed. Three tries in a row, then three more every 8 s until it is found.
+  let panelAt=0,panelTries=0;
   async function fitPanel(frame,c){
+    const p=await findPanel(frame,c);if(!p)return false;
+    api.panel(p);return true;
+  }
+  async function findPanel(frame,c){
     const v=frame.visibleRect,b=config.display.bounds,even=n=>Math.max(0,Math.floor(n/2)*2);
     const mx=Math.round(c.rect.width*.08),my=Math.round(c.rect.height*.08),x=even(Math.max(v.x,c.rect.x-mx)),y=even(Math.max(v.y,c.rect.y-my));
     const w=even(Math.min(v.x+v.width,c.rect.x+c.rect.width+mx)-x),h=even(Math.min(v.y+v.height,c.rect.y+c.rect.height+my)-y);
     const copy=await copyFrame(frame,{x,y,width:w,height:h},'panel'),p=findMapPanel({width:w,height:h,data:copy.rgba()});
     delete pool.panel;// a one-off: not worth keeping
-    if(!p)return false;
-    api.panel({x:b.x+(x+p.x-v.x)/c.k,y:b.y+(y+p.y-v.y)/c.k,width:p.width/c.k,height:p.height/c.k});
-    return true;
+    return p&&{x:b.x+(x+p.x-v.x)/c.k,y:b.y+(y+p.y-v.y)/c.k,width:p.width/c.k,height:p.height/c.k};
   }
-  // While the frame says closed, once a second: is the zone rim there anyway? Three times in a row means the map
-  // panel moved (another resolution or UI scale in the game): the area is fitted again.
+  // While the frame says closed, once a second: is the zone rim there anyway? Three times in a row, the panel is
+  // looked for around the area: found elsewhere (another UI scale in the game), the area moves to it. Found where it
+  // was, or not found, the frame was only covered (a tooltip over its edge): the fitted area stays.
   async function probe(frame,c){
     const copy=await copyFrame(frame,c.rect,'crop'),img={width:c.rect.width,height:c.rect.height,data:copy.rgba()};
     const found=ringCandidates(img)[0],result=found&&recogniseZone(discSample(img,found,ZONE_PATCHES.size),patches);
     misfits=result?.confident?misfits+1:0;
-    if(misfits>=3){misfits=0;api.refit();}
+    if(misfits>=3){misfits=0;const p=await findPanel(frame,c);delete pool.panel;if(p&&['x','y','width','height'].some(k=>Math.abs(p[k]-(k==='x'?config.rect.x:k==='y'?config.rect.y:config.rect[k]))>3))api.refit(p);}
   }
   // The last calibration, on the frames after the map opened: the map usually reopens as it was left, but may still
   // be fading or zooming in on the first ones. Without the map's frame (area not fitted yet) the map may be closed:
@@ -224,14 +270,17 @@
   function track(img,now){
     // A map found by a search (fresh) is refined once its fine levels are loaded; until then, and while the map stands
     // still, the search's fix stays (at 16 m/px it is finer than this thread's coarse levels).
-    const sig=signature(img),fine=hasFine(terrain.world);if(terrain.seen&&unchanged(sig,terrain.seen)&&!(terrain.fresh&&fine))return;
+    const sig=signature(img),fine=hasFine(terrain.world);if(terrain.seen&&unchanged(sig,terrain.seen)&&!(terrain.fresh&&fine)&&!terrain.rough)return;
     const levels=ready.get(terrain.world);if(!levels)return;
     // Without the map's frame to say it closed, the match must stay near the scores this map gave: the 3D world
     // behind a closed map matches ~0.45–0.5 somewhere near, the map itself 0.55–0.7.
     const minScore=mapOpen===null&&terrain.score?Math.max(.3,terrain.score*.75):.3;
-    const cap=captureOf(img),f=trackFix(levels,cap,terrain.fix,{minScore})||recoverFix(levels,cap,terrain.fix,{minScore});
+    // While the map moves (the calibration moved on the last frames), a quick track on the two coarser levels keeps up
+    // with it; the fine level follows once the map stands still (rough: not refined yet, so that frame is not skipped).
+    const quick=now-calMovedAt<150&&!terrain.fresh;
+    const cap=captureOf(img),f=trackFix(levels,cap,terrain.fix,{minScore,quick})||recoverFix(levels,cap,terrain.fix,{minScore});
     if(fine)terrain.fresh=false;
-    if(f){terrain.fix={x0:f.x0,y0:f.y0,s:f.s};terrain.score=terrain.score?terrain.score*.8+f.score*.2:f.score;terrain.seen=sig;terrain.lostAt=0;return;}
+    if(f){terrain.fix={x0:f.x0,y0:f.y0,s:f.s};terrain.score=terrain.score?terrain.score*.8+f.score*.2:f.score;terrain.seen=sig;terrain.lostAt=0;terrain.rough=quick;return;}
     if(!terrain.lostAt)terrain.lostAt=now;else if(now-terrain.lostAt>LOSE_MS){terrain=null;acquireAt=0;acquireWait=BACKGROUND_MS[0];failures=0;}
   }
 
@@ -247,7 +296,7 @@
     });
   }
   function acquire(img){
-    const luma=lumaOf(img),worlds=[...new Set([lastWorld,(activeKey()||'').split('/')[0],...WORLDS])].filter(w=>MAP_LANDMARKS[w]);
+    const luma=img.luma||lumaOf(img),worlds=[...new Set([lastWorld,(activeKey()||'').split('/')[0],...WORLDS])].filter(w=>MAP_LANDMARKS[w]);
     const current=job={id:++jobs,seen:signature(img),left:new Map(worlds.map(w=>[w,0])),total:worlds.length,began:performance.now()};
     current.done=new Promise(resolve=>{current.resolve=resolve;});
     window.layerStats.acquisitions++;
@@ -294,12 +343,13 @@
   }
 
   const el=(parent,tag,attrs={})=>{const node=document.createElementNS(NS,tag);for(const [k,v]of Object.entries(attrs))node.setAttribute(k,v);parent.append(node);return node;};
-  // What the search is doing, shown in the middle of the in-game map: opening it or Insert never looks like nothing.
+  // What the search is doing, a small line at the top of the in-game map: opening it or Insert never looks like nothing.
   function busyText(cal){
-    if(cal||mapOpen===false||!(mapOpen||job||marking))return null;
-    if(job)return `Ищу карту по местности · ${Math.round(searchProgress()*100)} %`;
-    if(failures)return 'Карта не узнана — отдали её, чтобы был виден круг зоны';
-    return mapOpen?'Карта открыта — ищу круг зоны…':'Ищу карту игры…';
+    const since=performance.now()-openedAt,justOpened=mapOpen===true&&since>250&&since<5000;
+    if(cal||mapOpen===false||!(marking||justOpened))return null;
+    if(job)return T('layer.busySearch',{p:Math.round(searchProgress()*100)});
+    if(failures)return T('layer.busyFailed');
+    return T(mapOpen?'layer.busyOpen':'layer.busyWait');
   }
   function draw(){
     const cal=crop&&calibration(),entry=rimEntry(),rim=$('rim'),busy=busyText(cal);
@@ -307,11 +357,11 @@
     $('busy').hidden=!busy;if(busy)$('busy-text').textContent=busy;
     rim.hidden=!ring||!crop||mapOpen===false;
     if(!rim.hidden){rim.setAttribute('cx',ring.cx/crop.k+crop.ox);rim.setAttribute('cy',ring.cy/crop.k+crop.oy);rim.setAttribute('r',ring.r/crop.k);}
-    if(!cal){$('badge').hidden=true;$('readout').hidden=true;drawMarks(null);return;}
+    if(!cal){$('badge').hidden=true;drawMarks(null);return;}
     $('badge').hidden=false;
-    $('badge-title').textContent=entry?entry.title:`${NAMES[cal.world]||cal.world} · по местности`;
-    $('badge-note').textContent=marking?'ЛКМ — точка · ПКМ — разрыв · Insert — выключить':entry&&ring.weak?'круг виден частично — отдали карту':'Insert — ставить метки';
-    drawMarks(cal);drawReadout(cal);
+    $('badge-title').textContent=entry?entry.title:T('gm.byTerrain',{world:NAMES[cal.world]||cal.world});
+    $('badge-note').textContent=T(marking?'layer.noteMarking':entry&&ring.weak?'layer.noteWeak':'layer.noteIdle');
+    drawMarks(cal);
   }
   // The overlay's pins, lines and solution label, as on its own map. Redrawn only when something moved.
   function drawMarks(cal){
@@ -323,19 +373,14 @@
     if(sel){const q=at(sel);el(g,'circle',{cx:q.x,cy:q.y,r:17,class:'halo'});}
     const pin=(p,label,cls,id)=>{const q=at(p),node=el(g,'g',{class:'pin '+cls,...(id==null?{}:{'data-pin':id})});el(node,'circle',{cx:q.x,cy:q.y,r:11});el(node,'text',{x:q.x,y:q.y}).textContent=label;};
     for(const x of scene.targets)pin(x,String(x.id),x===sel?'target chosen':'target',x.id);
-    if(scene.player)pin(scene.player,'Я','me','player');
+    if(scene.player)pin(scene.player,T('tools.me'),'me','player');
     if(scene.aim)pin(scene.aim,'+','aim-pin');
     if(scene.hit)pin(scene.hit,'×','hit-pin');
     if(sel&&scene.label){const q=at(sel);el(g,'text',{x:q.x+19,y:q.y+4,class:'pin-label'}).textContent=scene.label;}
   }
-  function drawReadout(cal=crop&&calibration()){
-    const out=$('readout');
-    if(!cursor||!cal){out.hidden=true;return;}
-    const p=toWorld(cal,cursor.x,cursor.y);
-    out.textContent=`x${p.x.toFixed(2)}  y${p.y.toFixed(2)}`;out.hidden=false;
-    // Below-left of the cursor: the game prints its own readout to the right of it.
-    out.style.left=Math.max(4,cursor.x-out.offsetWidth-14)+'px';out.style.top=Math.min(innerHeight-out.offsetHeight-4,cursor.y+18)+'px';
-  }
+  // Game units at a point of this window (the checks read the calibration with it; no readout of our own is shown:
+  // the game prints its own next to its cursor).
+  window.layerAt=(x,y)=>{const cal=crop&&calibration(),p=cal&&toWorld(cal,x,y);return p?{x:p.x,y:p.y}:null;};
   // starting: no frame analysed yet; closed / open: the map's frame says so (fitted area); searching: open or closed
   // unknown; acquiring: a wide terrain search runs (progress 0…1); failed: the last search found nothing.
   function report(status){
@@ -358,7 +403,7 @@
       mark('stream');const reader=new MediaStreamTrackProcessor({track:stream.getVideoTracks()[0],maxBufferSize:1}).readable.getReader();
       for(let last=0;;){
         const {value:frame,done}=await reader.read();
-        if(done)throw new Error('Захват экрана остановлен');
+        if(done)throw own('layer.captureStopped');
         mark('firstFrame');
         const now=performance.now();
         if(now-last<interval()-2){frame.close();continue;}
@@ -366,30 +411,62 @@
         let analysed;try{analysed=await analyse(frame,now);}finally{frame.close();}
         const stats=window.layerStats;
         if(analysed===false){stats.skipped++;continue;}
-        stats.ms=stats.ms*.9+(performance.now()-now)*.1;stats.frames++;mark('firstAnalysed');draw();report();
+        stats.ms=stats.ms*.9+(performance.now()-now)*.1;stats.frames++;mark('firstAnalysed');watchMotion(now);draw();report();
       }
     }catch(error){
       stream?.getTracks().forEach(track=>track.stop());stream=null;
       // A new poll rate restarts the capture at once; any other end of the capture is an error, retried in 3 s.
       if(restarting){restarting=false;start();return;}
       ring=null;terrain=null;if(job)endSearch(null);draw();
-      // Our own errors are Russian; browser capture errors get a plain explanation.
-      report({state:'error',message:/[а-я]/i.test(error?.message||'')?error.message:'не удалось захватить экран'});
+      // Our own errors (and the app's, from layer:config) say what is wrong; browser capture errors get a plain explanation.
+      const text=String(error?.message||''),app=/^Error invoking remote method '[^']*': (?:Error: )?/;
+      report({state:'error',message:error?.own?text:app.test(text)?text.replace(app,''):T('layer.captureFailed')});
       setTimeout(start,3000);
     }
   }
 
   // Marker mode: left click places the overlay's current tool (or hits a pin), right click marks the impact.
   function click(e,button){
+    if(dragged){dragged=false;return;}// the end of a drag, not a click
     const cal=crop&&calibration();if(!marking||!cal)return;
     const hit=button==='left'?e.target.closest?.('[data-pin]')?.dataset.pin:undefined,p=toWorld(cal,e.clientX,e.clientY);
     api.click({x:Math.round(p.x*100)/100,y:Math.round(p.y*100)/100,button,pin:hit===undefined?null:hit==='player'?'player':Number(hit)});
   }
   addEventListener('click',e=>click(e,'left'));
   addEventListener('contextmenu',e=>{e.preventDefault();click(e,'right');});
+  // The game's map in marker mode: a wheel zooms it and a drag moves it. The app hands the mouse to the game for that;
+  // the wheel notch or the drag that asked is lost (the game never saw it: nothing is ever sent to the game), the next
+  // ones reach it. The layer takes the mouse back after a wheel once the cursor moves off to aim, or the map has
+  // stood still for a moment; after a drag once the cursor and the map have both stood still for a moment; and after
+  // WHEEL_MAX_MS or DRAG_MAX_MS whatever happens. "The map stood still" is its calibration standing still.
+  const PASS_MOVE_PX=10,PASS_STILL_MS=600,PASS_MIN_MS=800,WHEEL_MAX_MS=4000,DRAG_PX=12,DRAG_STILL_MS=700,DRAG_MIN_MS=1500,DRAG_MAX_MS=8000;
+  // press: where a button went down on the layer; dragged: it moved far enough to be a drag (no point on release).
+  let pass=null,passTimer=0,press=null,dragged=false;
+  function startPass(kind,e){
+    if(pass||!marking||!(crop&&calibration()))return;
+    const now=performance.now();
+    pass={kind,x:e.clientX,y:e.clientY,at:now,movedAt:now,pinged:now};
+    document.body.classList.add('passing');$('pass-hint').hidden=false;api.pass(true);
+    passTimer=setInterval(()=>{
+      const now=performance.now();
+      const long=now-pass.at,still=now-Math.max(pass.at,calMovedAt);
+      if(pass.kind==='wheel'?long>=PASS_MIN_MS&&still>=PASS_STILL_MS||long>=WHEEL_MAX_MS:long>=DRAG_MIN_MS&&now-pass.movedAt>=DRAG_STILL_MS&&still>=DRAG_STILL_MS||long>=DRAG_MAX_MS){endPass();return;}
+      // Still needed: the app gives the mouse back by itself 3 s after the last word from here.
+      if(now-pass.pinged>=1000){pass.pinged=now;api.pass(true);}
+    },50);
+  }
+  function endPass(tell=true){
+    if(!pass)return;
+    pass=null;clearInterval(passTimer);document.body.classList.remove('passing');$('pass-hint').hidden=true;
+    if(tell)api.pass(false);
+  }
+  addEventListener('wheel',e=>startPass('wheel',e),{passive:true});
+  addEventListener('mousedown',e=>{press=marking&&!pass?{x:e.clientX,y:e.clientY}:null;dragged=false;});
+  addEventListener('mouseup',()=>{press=null;});
+  api.onPass(on=>{if(!on)endPass(false);});
   // Insert while the map is not found yet: search now, on fresh frames (the map may have opened a moment ago).
   api.onMarking(on=>{
-    marking=on;
+    marking=on;if(!on){endPass(false);press=null;}
     if(on&&!(crop&&calibration())&&mapOpen!==false){forced=2;if(!job)acquireAt=0;}
     draw();report();
   });
@@ -408,8 +485,14 @@
   // The drawn area turned out to be the panel already: from now on its frame says open or closed.
   api.onSnapped(()=>{if(config){config.snapped=true;mapOpen=true;}});
   api.onScene(next=>{scene=next;if(config)draw();});
+  // Another language chosen in the overlay: the badge, the search line and the pins follow at once.
+  api.onLanguage?.(next=>{I18N.set(next);I18N.apply(document);drawn='';if(config)draw();});
   api.onSelection(key=>{selected=key;if(config){draw();report();}});
-  addEventListener('mousemove',e=>{cursor={x:e.clientX,y:e.clientY};if(crop)drawReadout();});
-  document.addEventListener('mouseleave',()=>{cursor=null;drawReadout();});
+  // Moves reach the page while the mouse is with the game too (forwarded by the app).
+  addEventListener('mousemove',e=>{
+    if(press&&!pass&&e.buttons&&Math.hypot(e.clientX-press.x,e.clientY-press.y)>=DRAG_PX){dragged=true;press=null;startPass('drag',e);}
+    if(!pass)return;
+    if(pass.kind==='wheel'&&Math.hypot(e.clientX-pass.x,e.clientY-pass.y)>=PASS_MOVE_PX)endPass();else pass.movedAt=performance.now();
+  });
   start();
 })();

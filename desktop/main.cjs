@@ -1,6 +1,8 @@
 'use strict';
 const {app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage, screen, dialog, clipboard} = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
+const I18N=require('../dist/i18n.js');
 const {readPosition,resolvePosition,savePosition}=require('./window-position.cjs');
 const updater=require('./updater.cjs');
 const {createMapLayer}=require('./map-layer.cjs');
@@ -42,6 +44,11 @@ else {
   const toggle=()=>{if(!mapLayer)return;mapLayer.setMarking(!mapLayer.marking());reveal();apply();};
   app.on('second-instance',()=>setKeyboard(true));
   app.whenReady().then(async()=>{
+    // Interface language: English unless another was chosen in the overlay (userData/settings.json). Every window's
+    // preload asks for it before its page starts.
+    const settingsFile=path.join(app.getPath('userData'),'settings.json');
+    try{I18N.set(JSON.parse(fs.readFileSync(settingsFile,'utf8')).language);}catch{}
+    ipcMain.on('app:language',event=>{event.returnValue=I18N.lang;});
     const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
     const positionFile=path.join(app.getPath('userData'),'window-position.json');
     const saved=readPosition(positionFile);
@@ -51,7 +58,7 @@ else {
     const {width,height}=fullSize?{width:Math.min(COMPACT.width,area.width),height:Math.min(COMPACT.height,area.height)}:FULL;
     const position=resolvePosition(saved,width,height,screen.getAllDisplays().map(d=>d.workArea),area);
     const icon = nativeImage.createFromPath(path.join(__dirname,'icon.png'));
-    overlay = new BrowserWindow({title:'Точный бросок',width,height,...position,minWidth:Math.min(360,area.width),minHeight:Math.min(200,area.height),frame:false,show:false,alwaysOnTop:true,backgroundColor:'#08090a',autoHideMenuBar:true,icon,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,spellcheck:false}});
+    overlay = new BrowserWindow({title:I18N.t('app.name'),width,height,...position,minWidth:Math.min(360,area.width),minHeight:Math.min(200,area.height),frame:false,show:false,alwaysOnTop:true,backgroundColor:'#08090a',autoHideMenuBar:true,icon,webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,spellcheck:false}});
     let positionTimer;
     const persistPosition=()=>{
       clearTimeout(positionTimer);
@@ -105,7 +112,7 @@ else {
       const width=kind==='s'?b.width:fit(kind.endsWith('w')?b.width-dx:b.width+dx,minW,maxW),height=kind==='w'||kind==='e'?b.height:fit(b.height+dy,minH,maxH);
       overlay.setBounds({x:kind.endsWith('w')?b.x+b.width-width:b.x,y:b.y,width,height});
     });
-    ipcMain.handle('overlay:paste',async event=>{if(event.sender!==overlay.webContents)throw new Error('Нет доступа');return String(await clipboard.readText()).slice(0,200);});
+    ipcMain.handle('overlay:paste',async event=>{if(event.sender!==overlay.webContents)throw new Error(I18N.t('main.noAccess'));return String(await clipboard.readText()).slice(0,200);});
     overlay.on('blur',()=>{if(keyboard)setKeyboard(false);});
     ipcMain.on('overlay:quit',event=>{if(event.sender===overlay.webContents)app.quit();});
     ipcMain.on('overlay:update-action',(event,action)=>{if(event.sender===overlay.webContents&&['check','restart','open'].includes(action))updater.action(action);});
@@ -137,13 +144,26 @@ else {
     ipcMain.on('overlay:game-map-select',(event,key)=>{if(event.sender===overlay.webContents&&typeof key==='string'&&key.length<=100)mapLayer.select(key);});
     ipcMain.on('overlay:game-map-settings',(event,settings)=>{if(event.sender===overlay.webContents)mapLayer.settings(settings);});
     ipcMain.on('overlay:game-map-snapshot',event=>{if(event.sender===overlay.webContents)mapLayer.snapshot();});
-    ipcMain.handle('overlay:copy',async(event,text)=>{if(event.sender!==overlay.webContents || typeof text!=='string' || !/^Y-?\d+(?:\.\d+)? X-?\d+(?:\.\d+)?$/.test(text) || text.length>100)throw new Error('Некорректные координаты');await clipboard.writeText(text);return true;});
+    ipcMain.handle('overlay:copy',async(event,text)=>{if(event.sender!==overlay.webContents || typeof text!=='string' || !/^Y-?\d+(?:\.\d+)? X-?\d+(?:\.\d+)?$/.test(text) || text.length>100)throw new Error(I18N.t('main.badCoords'));await clipboard.writeText(text);return true;});
     tray = new Tray(icon);
-    tray.setToolTip(`Точный бросок ${version} · Insert — метки на карте игры`);
+    const t=I18N.t;
+    tray.setToolTip(t('tray.tooltip',{v:version}));
     const trayMenu=update=>{
-      const updateItems=update.state==='ready'?[{label:`Обновить до ${update.version} и перезапустить`,click:()=>updater.action('restart')}]:update.state==='manual'?[{label:`Скачать версию ${update.version}…`,click:()=>updater.action('open')}]:[];
-      tray.setContextMenu(Menu.buildFromTemplate([{label:'Метки на карте игры (Insert)',click:toggle},{label:'Окно с клавиатурой',click:()=>setKeyboard(true)},{label:'Скрыть',click:()=>overlay.hide()},{type:'separator'},{label:'Выбрать область карты игры…',click:()=>mapLayer.pick()},{label:'Снимок карты игры для отладки',click:()=>mapLayer.snapshot()},{type:'separator'},{label:`Версия ${version}`,enabled:false},...updateItems,{label:'Проверить обновления',enabled:update.enabled&&update.state!=='checking'&&update.state!=='downloading',click:()=>{updater.action('check');reveal();}},{label:'Обновлять автоматически',type:'checkbox',checked:update.auto,enabled:update.enabled,click:()=>updater.action('toggle-auto')},{type:'separator'},{label:'Выход',click:()=>app.quit()}]));
+      const updateItems=update.state==='ready'?[{label:t('tray.update',{v:update.version}),click:()=>updater.action('restart')}]:update.state==='manual'?[{label:t('tray.download',{v:update.version}),click:()=>updater.action('open')}]:[];
+      const languages=I18N.LANGS.map(language=>({label:I18N.LANGUAGES[language],type:'radio',checked:language===I18N.lang,click:()=>setLanguage(language)}));
+      tray.setContextMenu(Menu.buildFromTemplate([{label:t('tray.markers'),click:toggle},{label:t('tray.keyboard'),click:()=>setKeyboard(true)},{label:t('tray.hide'),click:()=>overlay.hide()},{type:'separator'},{label:t('menu.pickArea'),click:()=>mapLayer.pick()},{label:t('menu.snapshot'),click:()=>mapLayer.snapshot()},{label:t('bar.language'),submenu:languages},{type:'separator'},{label:t('tray.version',{v:version}),enabled:false},...updateItems,{label:t('tray.check'),enabled:update.enabled&&update.state!=='checking'&&update.state!=='downloading',click:()=>{updater.action('check');reveal();}},{label:t('tray.auto'),type:'checkbox',checked:update.auto,enabled:update.enabled,click:()=>updater.action('toggle-auto')},{type:'separator'},{label:t('tray.quit'),click:()=>app.quit()}]));
     };
+    // Another language (the overlay's select or the tray): remembered, the tray and the layer follow at once, the
+    // overlay reloads in it (its points, targets and settings are saved in the page and come back).
+    function setLanguage(next){
+      if(!I18N.LANGS.includes(next)||next===I18N.lang)return;
+      I18N.set(next);
+      try{fs.mkdirSync(path.dirname(settingsFile),{recursive:true});fs.writeFileSync(settingsFile,JSON.stringify({language:next}));}catch(error){console.warn('settings.json:',error.message);}
+      tray.setToolTip(t('tray.tooltip',{v:version}));trayMenu(updater.current());
+      mapLayer.language(next);
+      if(!overlay.isDestroyed()){overlay.setTitle(t('app.name'));overlay.webContents.reload();}
+    }
+    ipcMain.on('app:set-language',(event,next)=>{if(event.sender===overlay.webContents)setLanguage(next);});
     updater.start({version,userData:app.getPath('userData'),enabled:app.isPackaged||Boolean(process.env.SHOT_UPDATE_FEED),onChange:update=>{trayMenu(update);if(!overlay.isDestroyed())overlay.webContents.send('overlay:update',update);}});
     overlay.webContents.on('did-finish-load',()=>{overlay.webContents.send('overlay:update',updater.current());overlay.webContents.send('overlay:game-map',mapLayer.status());overlay.webContents.send('overlay:mode',mode||'view');});
     tray.on('double-click',toggle);
@@ -152,8 +172,8 @@ else {
     mapLayer.start();
     updater.confirm();
     apply();reveal();
-    if (!registered) dialog.showMessageBox(overlay,{type:'warning',title:'Insert занят',message:'Не удалось назначить Insert.',detail:'Клавиша занята другим приложением. Освободи её и перезапусти калькулятор. Пока метки включаются двойным щелчком по значку в трее.'});
-  }).catch(error=>{dialog.showErrorBox('Не удалось открыть калькулятор',error.message);app.quit();});
+    if (!registered) dialog.showMessageBox(overlay,{type:'warning',title:I18N.t('dlg.insertTitle'),message:I18N.t('dlg.insertMessage'),detail:I18N.t('dlg.insertDetail')});
+  }).catch(error=>{dialog.showErrorBox(I18N.t('dlg.openFailed'),error.message);app.quit();});
   app.on('window-all-closed',()=>app.quit());
   app.on('will-quit',()=>globalShortcut.unregisterAll());
 }

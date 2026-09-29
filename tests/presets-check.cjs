@@ -3,6 +3,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const {_electron}=require('./playwright.cjs');
 (async()=>{
  const root=path.resolve(__dirname,'..'),userData=fs.mkdtempSync(path.join(root,'.test-output','presets-'));
+ fs.writeFileSync(path.join(userData,'settings.json'),JSON.stringify({language:'ru'}));// the texts below are Russian
  let application,page;const errors=[];
  const launch=async()=>{
   application=await _electron.launch({executablePath:require('electron'),args:[path.join(__dirname,'position-fixture.cjs')],env:{...process.env,SHOT_POSITION_TEST_DATA:userData,SHOT_TEST_SKIP_SHORTCUT:'1'}});

@@ -142,6 +142,41 @@ test('Frame formats: BT.709 limited I420 and NV12, BT.601 full range, BGRX',()=>
   assert.ok(!Z.FRAME_FORMATS.test('I420P10')&&!Z.FRAME_FORMATS.test('RGBAF16')&&Z.FRAME_FORMATS.test('NV12'));
   assert.throws(()=>Z.frameToRgba(new Uint8Array(4),[{offset:0,stride:4}],'I420P10',1,1),/не поддерживается/);
 });
+test('Reading single pixels gives the colour of the full conversion, in every format',()=>{
+  // Random planes for a 6×4 frame (odd strides and offsets, as the browser may lay them out).
+  let seed=7;const rnd=()=>{seed=(Math.imul(seed,1103515245)+12345)>>>0;return seed>>>24;};
+  const plane=(w,h,stride)=>({w,h,stride,data:Array.from({length:stride*h},rnd)});
+  const pack=planes=>{const layout=[],bytes=[];for(const p of planes){layout.push({offset:bytes.length+3,stride:p.stride});bytes.push(0,0,0,...p.data);}return [Uint8Array.from(bytes),layout];};
+  const W=6,H=4,frames={I420:[plane(W,H,7),plane(3,2,4),plane(3,2,5)],I420A:[plane(W,H,6),plane(3,2,3),plane(3,2,3),plane(W,H,6)],I422:[plane(W,H,6),plane(3,4,3),plane(3,4,4)],I444:[plane(W,H,6),plane(W,H,6),plane(W,H,7)],NV12:[plane(W,H,6),plane(6,2,6)],RGBX:[plane(W*4,H,W*4)],BGRX:[plane(W*4,H,W*4+4)]};
+  for(const [format,planes]of Object.entries(frames))for(const space of [{matrix:'bt709',fullRange:false},{matrix:'smpte170m',fullRange:true}]){
+    const [buf,layout]=pack(planes),all=Z.frameToRgba(buf,layout,format,W,H,space),read=Z.pixelReader(buf,layout,format,space),px=[0,0,0];
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){read(x,y,px);const o=(y*W+x)*4;for(let k=0;k<3;k++)assert.ok(Math.abs(px[k]-all[o+k])<=1,`${format} ${x},${y}: ${px} vs ${[...all.slice(o,o+3)]}`);}
+  }
+});
+test('A recognised rim is followed when the map moves or zooms, and let go when it jumps too far',()=>{
+  // A tinted disc with a bright rim on a grey map, as the game draws the zone, at (cx, cy) with radius r.
+  const W=640,H=520,disc=(cx,cy,r)=>{const d=new Uint8ClampedArray(W*H*4);for(let y=0;y<H;y++)for(let x=0;x<W;x++){const o=(y*W+x)*4,e=Math.hypot(x+.5-cx,y+.5-cy)-r;let c=[92,94,96];if(e<0&&e>-5)c=[61,178,129];else if(e<=-5)c=[80,120,104];d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2];d[o+3]=255;}return {width:W,height:H,data:d};};
+  const start=Z.ringCandidates(disc(300,260,180))[0];
+  assert.ok(start&&Math.abs(start.r-180)<1.5,'found by the full search');
+  for(const [cx,cy,r]of [[300,260,180],[322,248,180],[300,260,196],[290,270,166]]){
+    const t=Z.trackRing(disc(cx,cy,r),start);
+    assert.ok(t&&Math.hypot(t.cx-cx,t.cy-cy)<1&&Math.abs(t.r-r)<1.5,`tracked to ${cx},${cy} r ${r}: ${t&&[t.cx,t.cy,t.r].map(v=>v.toFixed(1))}`);
+  }
+  // A steady pan of 45 px a frame is beyond the rays alone, but the motion of the frame before predicts it.
+  const a=Z.trackRing(disc(345,260,180),start,null);
+  const b=Z.trackRing(disc(390,260,180),{...start,cx:345},start);
+  assert.ok(b&&Math.abs(b.cx-390)<1,'a steady pan is predicted');
+  assert.equal(Z.trackRing(disc(300,260,250),start),null,'a 40 % zoom jump is left to the full search');
+  assert.ok(a===null||Math.abs(a.cx-345)<1);
+});
+test('A rim is the zone that sits at its place on the terrain fix, if the size matches',()=>{
+  const zones=[{id:'a',pos:[.5,.5],radiusM:500},{id:'b',pos:[.3,.7],radiusM:500}],fix={x0:70,y0:95,s:4};
+  // Zone a at game (81.92, 81.92): capture px ((81.92-70)·25, (95-81.92)·25) = (298, 327), radius 125 px.
+  assert.equal(Z.zoneAtPlace(zones,fix,{cx:298,cy:327,r:125})?.id,'a');
+  assert.equal(Z.zoneAtPlace(zones,fix,{cx:298+10,cy:327,r:125})?.id,'a','40 m off: within 60 m');
+  assert.equal(Z.zoneAtPlace(zones,fix,{cx:298+25,cy:327,r:125}),null,'100 m off');
+  assert.equal(Z.zoneAtPlace(zones,fix,{cx:298,cy:327,r:140}),null,'12 % too large: a marker circle, not the zone');
+});
 test('Every control zone has a 64×64 patch generated from the offline maps',()=>{
   const keys=Object.entries(MAP_LANDMARKS).flatMap(([world,meta])=>meta.zones.map(z=>`${world}/${z.id}`));
   assert.deepEqual(Object.keys(ZONE_PATCHES.patches).sort(),keys.sort());

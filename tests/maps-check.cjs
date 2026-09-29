@@ -7,6 +7,7 @@ const {coordToMap,mapToCoord}=require('../dist/maps.js');
   assert.deepEqual(mapToCoord({x:1000,y:1000}),{x:163.84,y:0});
   const root=path.resolve(__dirname,'..');fs.mkdirSync(path.join(root,'.test-output'),{recursive:true});
   const userData=fs.mkdtempSync(path.join(root,'.test-output','maps-'));
+  fs.writeFileSync(path.join(userData,'settings.json'),JSON.stringify({language:'ru'}));// the texts below are Russian
   const application=await _electron.launch({executablePath:require('electron'),args:[path.join(__dirname,'position-fixture.cjs')],env:{...process.env,SHOT_POSITION_TEST_DATA:userData,SHOT_TEST_SKIP_SHORTCUT:'1'}});
   try{
     const page=await application.firstWindow();const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.waitForSelector('body.desktop');

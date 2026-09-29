@@ -12,7 +12,7 @@
     if(!start)return;start=null;
     if(box&&box.width>=MIN&&box.height>=MIN){window.mapLayer.picked(box);return;}
     document.body.classList.remove('dragging');$('rect').hidden=true;
-    $('hint').classList.add('error');$('hint-text').textContent=`Рамка меньше ${MIN} × ${MIN}: обведи всю карту игры. ПКМ — отмена`;
+    $('hint').classList.add('error');$('hint-text').textContent=I18N.t('picker.small',{min:MIN});
   });
   addEventListener('keydown',e=>{if(e.key==='Escape')window.mapLayer.cancel();});
   addEventListener('contextmenu',e=>{e.preventDefault();window.mapLayer.cancel();});

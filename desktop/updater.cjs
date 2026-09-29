@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const core = require('./update-core.cjs');
+const {t} = require('../dist/i18n.js');
 
 const REPO = 'KustovYuriiUA/balistic-calculator-wardogs';
 const RELEASES = `https://github.com/${REPO}/releases`;
@@ -25,23 +26,23 @@ function allowed(url) {
   return (parsed.protocol === 'https:' || (testFeed && parsed.protocol === 'http:')) && hosts.has(parsed.hostname);
 }
 async function get(url, accept, timeout) {
-  if (!allowed(url)) throw new Error('Недопустимый адрес обновления.');
+  if (!allowed(url)) throw new Error(t('upd.err.url'));
   const response = await net.fetch(url, {headers: {Accept: accept, 'User-Agent': 'tochnyi-brosok-updater'}, signal: AbortSignal.timeout(timeout)});
-  if (response.url && !allowed(response.url)) throw new Error('Недопустимое перенаправление обновления.');
-  if (!response.ok) throw new Error('GitHub ответил ' + response.status + '.');
+  if (response.url && !allowed(response.url)) throw new Error(t('upd.err.redirect'));
+  if (!response.ok) throw new Error(t('upd.err.http', {status: response.status}));
   return response;
 }
 async function download(url, limit, onProgress) {
   const response = await get(url, 'application/octet-stream', 5 * 60 * 1000);
   const total = Number(response.headers.get('content-length')) || 0;
-  if (total > limit) throw new Error('Файл обновления слишком большой.');
+  if (total > limit) throw new Error(t('upd.err.tooBig'));
   const reader = response.body.getReader(), chunks = [];
   let size = 0;
   for (;;) {
     const {done, value} = await reader.read();
     if (done) break;
     size += value.length;
-    if (size > limit) throw new Error('Файл обновления слишком большой.');
+    if (size > limit) throw new Error(t('upd.err.tooBig'));
     chunks.push(value);
     if (onProgress && total) onProgress(size / total);
   }
@@ -62,17 +63,17 @@ async function check(manual) {
     // Releases without a manifest, or built on another Electron runtime, need the full download.
     if (!manifestUrl) { publish({state: 'manual', version, url: page}); return; }
     const manifest = core.validateManifest(JSON.parse((await download(manifestUrl, 1e6)).toString('utf8')));
-    if (manifest.version !== version) throw new Error('Версия манифеста не совпадает с релизом.');
+    if (manifest.version !== version) throw new Error(t('upd.err.version'));
     const staged = core.readState(options.userData);
     if (manifest.electron !== process.versions.electron || (staged?.version === version && staged.broken)) { publish({state: 'manual', version, url: page}); return; }
     if (staged?.version === version && fs.existsSync(path.join(core.updatesDir(options.userData), version, 'desktop', 'main.cjs'))) { publish({state: 'ready', version}); return; }
     const bundleUrl = asset(manifest.app.name);
-    if (!bundleUrl) throw new Error('В релизе нет файла ' + manifest.app.name + '.');
+    if (!bundleUrl) throw new Error(t('upd.err.noFile', {name: manifest.app.name}));
     let shown = -1;
     const progress = share => { const percent = Math.floor(share * 100); if (percent >= shown + 5) { shown = percent; publish({state: 'downloading', version, progress: percent}); } };
     progress(0);
     const bundle = await download(bundleUrl, APP_LIMIT, progress);
-    if (bundle.length !== manifest.app.size || crypto.createHash('sha256').update(bundle).digest('hex') !== manifest.app.sha256) throw new Error('Контрольная сумма обновления не совпала.');
+    if (bundle.length !== manifest.app.size || crypto.createHash('sha256').update(bundle).digest('hex') !== manifest.app.sha256) throw new Error(t('upd.err.checksum'));
     install(version, bundle);
     publish({state: 'ready', version});
   } catch (error) {
@@ -89,7 +90,7 @@ function install(version, bundle) {
     fs.writeFileSync(destination, file.data);
   }
   const manifest = JSON.parse(fs.readFileSync(path.join(partial, 'package.json'), 'utf8'));
-  if (manifest.version !== version || !fs.existsSync(path.join(partial, 'desktop', 'main.cjs')) || !fs.existsSync(path.join(partial, 'dist', 'index.html'))) throw new Error('Обновление неполное.');
+  if (manifest.version !== version || !fs.existsSync(path.join(partial, 'desktop', 'main.cjs')) || !fs.existsSync(path.join(partial, 'dist', 'index.html'))) throw new Error(t('upd.err.incomplete'));
   fs.rmSync(target, {recursive: true, force: true});
   fs.renameSync(partial, target);
   core.writeState(options.userData, {version, attempts: 0, confirmed: false});

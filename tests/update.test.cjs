@@ -27,7 +27,7 @@ test('ZIP reader rejects escaping paths and corrupted data',()=>{
   for(const name of ['../evil.js','/abs.js','C:/x.js','a\\b.js','a/../b.js','a//b.js'])assert.equal(core.safeEntry(name),false,name);
   const dir=temp(),file=path.join(dir,'f.txt');fs.writeFileSync(file,'x'.repeat(1000));
   const zip=path.join(dir,'evil.zip');writeZip(zip,[{full:file,name:'../evil.js'}]);
-  assert.throws(()=>core.readZip(fs.readFileSync(zip)),/Недопустимый путь/);
+  assert.throws(()=>core.readZip(fs.readFileSync(zip)),/Invalid path/);
   writeZip(zip,[{full:file,name:'ok.txt'}]);const broken=fs.readFileSync(zip);broken[40]^=0xff;
   assert.throws(()=>core.readZip(broken));
 });

@@ -1,4 +1,6 @@
 'use strict';
+// Text in the chosen language (i18n.js: a global on the page, a module in Node); maps.js uses it too.
+const T = (key, vars) => (typeof I18N !== 'undefined' ? I18N : require('./i18n.js')).t(key, vars);
 function parseCoordinate(text) {
   const value = String(text).trim().replace(/−/g, '-');
   const number = '[+-]?(?:\\d+(?:[.,]\\d+)?|[.,]\\d+)';
@@ -8,29 +10,29 @@ function parseCoordinate(text) {
   if (tagged.length) {
     const rest = value.replace(new RegExp('([xyху])\\s*[:=]?\\s*(' + number + ')', 'gi'), '').replace(/[\s,;()[\]{}]/g, '');
     const entries = tagged.map(m => [/[xх]/i.test(m[1]) ? 'x' : 'y', normalize(m[2])]);
-    if (rest || entries.length !== 2 || entries[0][0] === entries[1][0]) throw new Error('Нужны две координаты: Y102 X88.');
+    if (rest || entries.length !== 2 || entries[0][0] === entries[1][0]) throw new Error(T('err.twoCoords'));
     point = Object.fromEntries(entries);
   } else {
     const clean = value.replace(/^[([\s]+|[)\]\s]+$/g, '');
     const match = clean.match(new RegExp('^(' + number + ')(?:\\s*[;]\\s*|\\s+|,\\s+)(' + number + ')$'));
-    if (!match) throw new Error('Вставь Y102 X88 или два числа: 102 88.');
+    if (!match) throw new Error(T('err.format'));
     point = { y: normalize(match[1]), x: normalize(match[2]) };
   }
-  if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || Math.max(Math.abs(point.x), Math.abs(point.y)) > 1e9) throw new Error('Координаты должны быть конечными числами до 1 млрд.');
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y) || Math.max(Math.abs(point.x), Math.abs(point.y)) > 1e9) throw new Error(T('err.finite'));
   return point;
 }
 function calculateShot(player, target, hit, distance, previousAim = target) {
   const length = p => Math.hypot(p.x - player.x, p.y - player.y);
   const targetLength = length(target), hitLength = length(hit);
-  if (targetLength < 1e-9) throw new Error('Твоя позиция совпадает с целью. Проверь координаты.');
-  if (hitLength < 1e-9) throw new Error('Разрыв совпадает с твоей позицией: невозможно определить дальность и направление.');
-  if (length(previousAim) < 1e-9) throw new Error('Точка прицеливания не может совпадать с твоей позицией.');
-  if (distance !== null && (!Number.isFinite(distance) || distance <= 0)) throw new Error('Выставленная дальность должна быть больше нуля.');
+  if (targetLength < 1e-9) throw new Error(T('err.samePos'));
+  if (hitLength < 1e-9) throw new Error(T('err.hitAtPlayer'));
+  if (length(previousAim) < 1e-9) throw new Error(T('err.aimAtPlayer'));
+  if (distance !== null && (!Number.isFinite(distance) || distance <= 0)) throw new Error(T('err.distancePositive'));
   const bearing = p => Math.atan2(p.x - player.x, p.y - player.y);
   const angle = bearing(target) - (bearing(hit) - bearing(previousAim));
   const coefficient = targetLength / hitLength;
   const result = {aim: {y: player.y + targetLength * Math.cos(angle), x: player.x + targetLength * Math.sin(angle)}, targetDistance:targetLength * 100, hitDistance:hitLength * 100, coefficient, distance:distance === null ? null : distance * coefficient};
-  if (result.distance !== null && !Number.isFinite(result.distance)) throw new Error('Слишком большая дальность. Проверь значение.');
+  if (result.distance !== null && !Number.isFinite(result.distance)) throw new Error(T('err.tooFar'));
   return result;
 }
 if (typeof module !== 'undefined') module.exports = {parseCoordinate, calculateShot};
@@ -61,9 +63,18 @@ if (typeof document !== 'undefined') {
       const move=()=>window.overlay.drag(kind,'move'),end=()=>{el.removeEventListener('pointermove',move);el.removeEventListener('pointerup',end);el.removeEventListener('pointercancel',end);window.overlay.drag(kind,'end');};
       el.addEventListener('pointermove',move);el.addEventListener('pointerup',end);el.addEventListener('pointercancel',end);
     };
-    $('window-bar').addEventListener('pointerdown',e=>{if(!e.target.closest('button'))drag(e,'move');});
+    $('window-bar').addEventListener('pointerdown',e=>{if(!e.target.closest('button,select'))drag(e,'move');});
     document.querySelectorAll('[data-resize]').forEach(grip=>grip.addEventListener('pointerdown',e=>drag(e,grip.dataset.resize)));
     window.overlay.onUpdate?.(showUpdate);$('update-pill').addEventListener('click',()=>{const action=$('update-pill').dataset.action;if(action)window.overlay.update(action);});
+  }
+  // Language: the desktop app keeps it and reloads the window in it; the web page keeps it in localStorage.
+  for(const select of [$('language-select'),$('language-select-web')]){
+    select.value=I18N.lang;
+    select.addEventListener('change',()=>{
+      if(window.overlay?.setLanguage){window.overlay.setLanguage(select.value);return;}
+      try{localStorage.setItem('shot-language',select.value);}catch{}
+      location.reload();
+    });
   }
   // A <select>'s list: one button per option, under the field (or above it, where there is more room).
   let list=null;
@@ -84,14 +95,14 @@ if (typeof document !== 'undefined') {
   let updateNoticeTimer=0;
   function showUpdate(update){
     const pill=$('update-pill'),notice=update.manual&&(update.state==='latest'||update.state==='error');
-    $('window-brand').title='Точный бросок '+update.current;clearTimeout(updateNoticeTimer);
-    const view={downloading:[`↓ ${update.version} · ${update.progress||0}%`,'','Загружается обновление'],ready:[`↻ Обновить до ${update.version}`,'restart','Перезапустить с новой версией'],manual:[`↗ Версия ${update.version}`,'open','Новая версия требует полной загрузки — открыть страницу релиза'],checking:update.manual?['Проверка…','','Проверяем обновления']:null,latest:notice?[`✓ ${update.current} актуальна`,'','Установлена последняя версия']:null,error:notice?['Нет связи с GitHub','',update.message||'']:null}[update.state];
+    $('window-brand').title=T('app.name')+' '+update.current;clearTimeout(updateNoticeTimer);
+    const v=update.version,view={downloading:[`↓ ${v} · ${update.progress||0}%`,'',T('upd.downloading')],ready:[T('upd.ready',{v}),'restart',T('upd.readyTitle')],manual:[T('upd.manual',{v}),'open',T('upd.manualTitle')],checking:update.manual?[T('upd.checking'),'',T('upd.checkingTitle')]:null,latest:notice?[T('upd.latest',{v:update.current}),'',T('upd.latestTitle')]:null,error:notice?[T('upd.offline'),'',update.message||'']:null}[update.state];
     pill.hidden=!view;if(!view)return;
     [pill.textContent,pill.dataset.action,pill.title]=view;pill.classList.toggle('ready',update.state==='ready'||update.state==='manual');pill.disabled=!view[1];
     if(notice)updateNoticeTimer=setTimeout(()=>{pill.hidden=true;},5000);
   }
   const fields = ['player', 'target', 'hit', 'distance', 'previous-aim'];
-  const fmt = n => new Intl.NumberFormat('ru-RU', {maximumFractionDigits:2}).format(Math.abs(n) < .00001 ? 0 : n);
+  const fmt = n => I18N.number(Math.abs(n) < .00001 ? 0 : n), m = ' '+T('unit.m');
   let last = null;
   let automaticBase = false;
   function calculateBase() {
@@ -104,26 +115,26 @@ if (typeof document !== 'undefined') {
     }
     if(invalid){$(invalid).focus();return;}
     const metres=Math.hypot(points.target.x-points.player.x,points.target.y-points.player.y)*100;
-    if(metres<0.005){$('target-error').textContent='Позиция и цель совпадают или расстояние меньше 0,01 м. Проверь координаты.';$('target').setAttribute('aria-invalid','true');return;}
+    if(metres<0.005){$('target-error').textContent=T('calc.samePoint');$('target').setAttribute('aria-invalid','true');return;}
     $('distance').value=metres.toFixed(2);
     $('distance-error').textContent='';$('distance').removeAttribute('aria-invalid');
     automaticBase=true;
-    $('base-status').textContent=`До цели ${fmt(metres)} м. Сохранено как дальность пробного выстрела.`;
-    $('status').textContent='Дальность готова';
+    $('base-status').textContent=T('calc.baseStatus',{d:fmt(metres)});
+    $('status').textContent=T('calc.rangeReady');
     last={aim:points.target,distance:Number(metres.toFixed(2)),targetDistance:metres};
     $('aim-value').textContent=`Y ${fmt(points.target.y)}   X ${fmt(points.target.x)}`;
     $('aim-azimuth').textContent=formatAzimuth(azimuth(points.player,last.aim));
-    $('distance-value').textContent=`${fmt(last.distance)} м`;
-    $('distance-note').textContent='Пробный выстрел: целься в цель с этой дальностью. После выстрела укажи разрыв для поправки.';
-    $('target-distance').textContent=fmt(metres)+' м';
+    $('distance-value').textContent=fmt(last.distance)+m;
+    $('distance-note').textContent=T('calc.testNote');
+    $('target-distance').textContent=fmt(metres)+m;
     $('hit-distance').textContent='—';$('coefficient').textContent='—';
-    $('empty').hidden=true;$('result').hidden=false;$('copy').textContent='Копировать';
+    $('empty').hidden=true;$('result').hidden=false;$('copy').textContent=T('calc.copy');
     draw({player:points.player,target:points.target});
   }
   function invalidate() {
     last = null; $('result').hidden = true; $('empty').hidden = false;
-    $('status').textContent = 'Ждём расчёта'; $('status').className = 'badge';
-    $('map').innerHTML = '<text x="260" y="150" text-anchor="middle" fill="#6b7580" font-size="15">Рассчитай обновлённые координаты</text>';
+    $('status').textContent = T('calc.waitCalc'); $('status').className = 'badge';
+    $('map').innerHTML = '<text x="260" y="150" text-anchor="middle" fill="#6b7580" font-size="15"></text>'; $('map').firstChild.textContent = T('calc.schemeRecalc');
   }
   function draw(points) {
     const values = Object.values(points), xs = values.map(p=>p.x), ys = values.map(p=>p.y);
@@ -131,7 +142,7 @@ if (typeof document !== 'undefined') {
     const scale = Math.min(380 / Math.max(maxX-minX,1e-9),190 / Math.max(maxY-minY,1e-9));
     const map = p => ({x:260+(p.x-(minX+maxX)/2)*scale,y:145-(p.y-(minY+maxY)/2)*scale});
     const origin = map(points.player), colors = {player:'#fff2dd',target:'#ffd24a',hit:'#ff6a3d',aim:'#c9a7ff'};
-    const labels = {player:'Я',target:'Цель',hit:'Разрыв',aim:'Прицел'};
+    const labels = {player:T('legend.me'),target:T('legend.target'),hit:T('legend.hit'),aim:T('legend.aim')};
     const offsets={player:[12,22],target:[12,-16],hit:[12,24],aim:[12,-32]};
     let svg = '';
     for (const key of ['target','hit','aim'].filter(key=>points[key])) {const p=map(points[key]);svg+=`<line x1="${origin.x}" y1="${origin.y}" x2="${p.x}" y2="${p.y}" stroke="${colors[key]}" stroke-width="1.5" opacity=".65" ${key==='aim'?'stroke-dasharray="6 6"':''}/>`;}
@@ -147,16 +158,16 @@ if (typeof document !== 'undefined') {
       try {points[id]=parseCoordinate($(id).value);} catch(e) {$(id+'-error').textContent=e.message;$(id).setAttribute('aria-invalid','true');invalid ||= id;}
     }
     const raw=$('distance').value.trim(), distance=raw ? Number(raw.replace(/\s/g,'').replace(',','.')) : null;
-    if (raw && (!/^[+]?\d+(?:[.,]\d+)?$/.test(raw.replace(/\s/g,'')) || !Number.isFinite(distance) || distance<=0)) {$('distance-error').textContent='Введи положительное число в метрах.';$('distance').setAttribute('aria-invalid','true');invalid ||= 'distance';}
+    if (raw && (!/^[+]?\d+(?:[.,]\d+)?$/.test(raw.replace(/\s/g,'')) || !Number.isFinite(distance) || distance<=0)) {$('distance-error').textContent=T('calc.positiveMetres');$('distance').setAttribute('aria-invalid','true');invalid ||= 'distance';}
     if (invalid) {invalidate();if(invalid==='previous-aim') $('aim-details').open=true;$(invalid).focus();return null;}
     try {
       last=calculateShot(points.player,points.target,points.hit,distance,points['previous-aim'] || points.target);
       $('aim-value').textContent=`Y ${fmt(last.aim.y)}   X ${fmt(last.aim.x)}`;
       $('aim-azimuth').textContent=formatAzimuth(azimuth(points.player,last.aim));
-      $('distance-value').textContent=last.distance===null?`× ${fmt(last.coefficient)}`:`${fmt(last.distance)} м`;
-      $('distance-note').textContent=last.distance===null?'Прежняя дальность × коэффициент. Введи выставленную дальность, чтобы получить метры.':`Предыдущая настройка ${fmt(distance)} м × ${fmt(last.coefficient)}. Коэффициент применяется без округления.`;
-      $('target-distance').textContent=fmt(last.targetDistance)+' м';$('hit-distance').textContent=fmt(last.hitDistance)+' м';$('coefficient').textContent='× '+fmt(last.coefficient);
-      $('empty').hidden=true;$('result').hidden=false;$('status').textContent='Оценка готова';$('status').className='badge ready';$('copy').textContent='Копировать';
+      $('distance-value').textContent=last.distance===null?`× ${fmt(last.coefficient)}`:fmt(last.distance)+m;
+      $('distance-note').textContent=last.distance===null?T('calc.coefNote'):T('calc.prevNote',{d:fmt(distance),k:fmt(last.coefficient)});
+      $('target-distance').textContent=fmt(last.targetDistance)+m;$('hit-distance').textContent=fmt(last.hitDistance)+m;$('coefficient').textContent='× '+fmt(last.coefficient);
+      $('empty').hidden=true;$('result').hidden=false;$('status').textContent=T('calc.estimateReady');$('status').className='badge ready';$('copy').textContent=T('calc.copy');
       draw({player:points.player,target:points.target,hit:points.hit,aim:last.aim});return last;
     } catch(e) {invalidate();$('form-error').textContent=e.message;return null;}
   }
@@ -175,8 +186,8 @@ if (typeof document !== 'undefined') {
   $('copy').addEventListener('click',async()=>{
     if(!last)return;
     const coordinate=`Y${last.aim.y.toFixed(2)} X${last.aim.x.toFixed(2)}`;
-    try{if(window.overlay)await window.overlay.copyCoordinates(coordinate);else await navigator.clipboard.writeText(coordinate);$('copy').textContent='Скопировано';}
-    catch{const range=document.createRange();range.selectNodeContents($('aim-value'));const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);$('copy').textContent='Нажми Ctrl+C';}
+    try{if(window.overlay)await window.overlay.copyCoordinates(coordinate);else await navigator.clipboard.writeText(coordinate);$('copy').textContent=T('calc.copied');}
+    catch{const range=document.createRange();range.selectNodeContents($('aim-value'));const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);$('copy').textContent=T('calc.pressCtrlC');}
   });
   if(document.modelContext?.registerTool) {
     const lifecycle=new AbortController();

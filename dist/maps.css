@@ -126,7 +126,7 @@ body:not(.desktop) #map-workspace{--chrome:260px;--panel-top:150px}
 #preset-status::before{content:'';width:6px;height:6px;background:var(--ok)}
 #preset-status.error{color:var(--danger)}#preset-status.error::before{background:var(--danger)}
 #target-list{flex:1 1 auto;min-height:60px;overflow-y:auto;display:grid;align-content:start;gap:4px}
-#target-list:empty::after{content:'Целей нет. Поставь свою позицию, затем отметь цели на карте.';font-size:12px;color:var(--text-3);padding:10px 2px}
+#target-list:empty::after{content:attr(data-empty);font-size:12px;color:var(--text-3);padding:10px 2px}
 
 .target-row{display:grid;grid-template-columns:minmax(0,1fr) 30px;background:var(--bg-1);border:1px solid var(--line);border-left:3px solid var(--line-2)}
 .target-row:hover{border-color:var(--line-2)}
@@ -185,7 +185,7 @@ body:not(.desktop) #map-workspace{--chrome:260px;--panel-top:150px}
 .compact-map .entry-row input{padding:5px 8px;font-size:13px}
 .compact-map .entry-row button{min-height:30px;font-size:11px}
 .compact-map #target-list{flex:none;max-height:clamp(64px,24vh,220px)}
-/* Compact window sized to its content (desktop «Компактно»): nothing depends on the window height, the map is as
+/* Compact window sized to its content (desktop "Compact"): nothing depends on the window height, the map is as
    wide as the window, and the list shows up to 10 targets (maps.js sets --list-max) before it scrolls. */
 .fit-height.compact-map #terrain-frame{width:100%}
 .fit-height.compact-map #target-list{max-height:var(--list-max,none)}
