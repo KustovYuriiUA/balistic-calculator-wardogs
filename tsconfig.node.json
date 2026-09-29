@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": [
+    "src/main",
+    "src/preload",
+    "src/features/*/main",
+    "src/features/*/core",
+    "src/shared/ipc",
+    "src/shared/i18n",
+    "src/shared/geometry",
+    "src/shared/format",
+    "src/data",
+    "src/types",
+    "tests/unit",
+    "tests/support",
+    "vite.config.mts",
+    "vitest.config.mts"
+  ]
+}

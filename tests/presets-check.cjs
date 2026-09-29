@@ -2,7 +2,8 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {_electron}=require('./playwright.cjs');
 (async()=>{
- const root=path.resolve(__dirname,'..'),userData=fs.mkdtempSync(path.join(root,'.test-output','presets-'));
+ const root=path.resolve(__dirname,'..');fs.mkdirSync(path.join(root,'.test-output'),{recursive:true});
+ const userData=fs.mkdtempSync(path.join(root,'.test-output','presets-'));
  fs.writeFileSync(path.join(userData,'settings.json'),JSON.stringify({language:'ru'}));// the texts below are Russian
  let application,page;const errors=[];
  const launch=async()=>{

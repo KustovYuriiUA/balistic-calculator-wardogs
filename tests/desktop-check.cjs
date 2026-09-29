@@ -55,11 +55,12 @@ const {_electron}=require('./playwright.cjs');
     assert.equal(await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isVisible()),false);
     await application.evaluate(({BrowserWindow})=>{BrowserWindow.getAllWindows()[0].show();});
     assert.equal(await page.locator('#player').inputValue(),'Y102 X88');
+    // Hiding blurs the window, and a blur gives the keyboard back to the game (1.x did the same).
+    await page.waitForFunction(()=>document.getElementById('overlay-mode').textContent==='View');
     // Russian from the window bar's select: saved for the next start, the window reloads in it, the points stay.
-    assert.equal(await page.locator('#overlay-mode').textContent(),'Keyboard');
     assert.equal(fs.existsSync(path.join(userData,'settings.json')),false,'English needs no settings file');
     await page.locator('#language-select').selectOption('ru');
-    const inRussian=async()=>{for(const end=Date.now()+10000;Date.now()<end;await new Promise(r=>setTimeout(r,100))){try{if(await page.evaluate(()=>document.documentElement.lang==='ru'&&document.getElementById('overlay-mode').textContent==='Клавиатура'))return true;}catch{}}return false;};
+    const inRussian=async()=>{for(const end=Date.now()+10000;Date.now()<end;await new Promise(r=>setTimeout(r,100))){try{if(await page.evaluate(()=>document.documentElement.lang==='ru'&&document.getElementById('overlay-mode').textContent==='Просмотр'))return true;}catch{}}return false;};
     assert.equal(await inRussian(),true,'The window reloads in Russian');
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(userData,'settings.json'),'utf8')),{language:'ru'});
     assert.equal(await page.locator('#calculator-tab').textContent(),'Ручной расчёт');

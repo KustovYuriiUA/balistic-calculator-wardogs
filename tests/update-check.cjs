@@ -6,9 +6,10 @@ const {writeZip,listFiles}=require('../scripts/zip.cjs');
 (async()=>{
   const root=path.resolve(__dirname,'..'),out=path.join(root,'.test-output');fs.mkdirSync(out,{recursive:true});
   const work=fs.mkdtempSync(path.join(out,'update-')),electron=JSON.parse(fs.readFileSync(path.join(root,'node_modules','electron','package.json'),'utf8')).version;
+  const current=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version;
   // Update 9.9.9 = the current desktop/ and dist/ (without the large maps) with a bumped version.
   const stage=path.join(work,'stage');fs.cpSync(path.join(root,'desktop'),path.join(stage,'desktop'),{recursive:true});
-  fs.cpSync(path.join(root,'dist'),path.join(stage,'dist'),{recursive:true,filter:src=>!src.includes(path.join('dist','maps'))});
+  fs.cpSync(path.join(root,'dist'),path.join(stage,'dist'),{recursive:true,filter:src=>path.relative(path.join(root,'dist'),src).split(path.sep)[0]!=='maps'});
   fs.writeFileSync(path.join(stage,'package.json'),JSON.stringify({name:'basketball-overlay',version:'9.9.9',main:'desktop/boot.cjs'}));
   const bundleFile=path.join(work,'app-9.9.9.zip');writeZip(bundleFile,listFiles(stage));
   const bundle=fs.readFileSync(bundleFile),asset={name:'app-9.9.9.zip',size:bundle.length,sha256:crypto.createHash('sha256').update(bundle).digest('hex')};
@@ -31,9 +32,10 @@ const {writeZip,listFiles}=require('../scripts/zip.cjs');
   try{
     const userData=path.join(work,'profile');fs.mkdirSync(userData);
     run=await launch('good',userData);
-    await run.page.waitForFunction(()=>document.getElementById('update-pill').classList.contains('ready'),null,{timeout:30000});
+    // The pill is rendered only while it has something to show.
+    await run.page.waitForFunction(()=>document.getElementById('update-pill')?.classList.contains('ready'),null,{timeout:30000});
     assert.match(await pill(run.page).textContent(),/Update to 9\.9\.9/);
-    assert.equal(await run.page.locator('#window-brand').getAttribute('title'),'Tochny Brosok 1.0.0');
+    assert.equal(await run.page.locator('#window-brand').getAttribute('title'),'Tochny Brosok '+current);
     assert.equal(fs.existsSync(path.join(userData,'updates','9.9.9','desktop','main.cjs')),true);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(userData,'updates','state.json'),'utf8')),{version:'9.9.9',attempts:0,confirmed:false});
     await run.application.close();
@@ -53,7 +55,8 @@ const {writeZip,listFiles}=require('../scripts/zip.cjs');
 
     const manual=path.join(work,'manual');fs.mkdirSync(manual);
     run=await launch('manual',manual);
-    await run.page.waitForFunction(()=>document.getElementById('update-pill').dataset.action==='open',null,{timeout:30000});
+    // The pill that opens the release page: enabled, with the full-download title (its only action is 'open').
+    await run.page.waitForFunction(()=>{const p=document.getElementById('update-pill');return Boolean(p&&!p.disabled&&p.title==='The new version needs a full download — open the release page');},null,{timeout:30000});
     assert.match(await pill(run.page).textContent(),/Version 9\.9\.9/,'Another Electron runtime asks for the full download');
     assert.equal(fs.existsSync(path.join(manual,'updates','9.9.9')),false);
     console.log('PASS: update found, downloaded, verified and staged; next start runs it and confirms; tampered bundle rejected; runtime change asks for full download.');

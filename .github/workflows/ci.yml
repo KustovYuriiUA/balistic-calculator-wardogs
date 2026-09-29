@@ -9,10 +9,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Types, lint, unit tests and the build need no Electron binary.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
-      # Unit tests need no dependencies: calculator, azimuth, updater core, ZIP round trip.
-      - run: node --test tests/*.test.cjs
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build

@@ -1,7 +1,9 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {_electron}=require('./playwright.cjs');
-const {coordToMap,mapToCoord}=require('../dist/maps.js');
+// The overlay's coordinate functions, bundled from src/ (the app itself runs dist/, built by `pnpm build`).
+require('node:child_process').execFileSync(process.execPath,[path.join(__dirname,'..','scripts','build-test-core.mjs')],{stdio:'inherit'});
+const {coordToMap,mapToCoord,parseCoordinate}=require('../.test-output/app.cjs');
 (async()=>{
   assert.deepEqual(coordToMap({x:0,y:163.84}),{x:0,y:0});
   assert.deepEqual(mapToCoord({x:1000,y:1000}),{x:163.84,y:0});
@@ -51,7 +53,7 @@ const {coordToMap,mapToCoord}=require('../dist/maps.js');
     assert.match(await goal2.locator('.target-power').textContent(),/^2\s250 м$/,'Second goal keeps its own coefficient');
     assert.equal(await page.locator('[data-target-id="3"] .target-coefficient').count(),0,'New goal inherits no correction');
     await page.screenshot({path:path.join(root,'.test-output','per-goal-corrections.png')});
-    const clicked=require('../dist/app.js').parseCoordinate(await page.locator('#target').inputValue());
+    const clicked=parseCoordinate(await page.locator('#target').inputValue());
     assert.ok(Math.abs(clicked.x-81.92)<163.84/bounds.width&&Math.abs(clicked.y-81.92)<163.84/bounds.height,'Center click matches map coordinates within one screen pixel');
     await page.locator('#zoom-in').click();assert.notEqual(await page.locator('#terrain').getAttribute('viewBox'),'0 0 1000 1000');
     await page.locator('#reset-map').click();assert.equal(await page.locator('#terrain').getAttribute('viewBox'),'0 0 1000 1000');
@@ -106,14 +108,16 @@ const {coordToMap,mapToCoord}=require('../dist/maps.js');
     await page.evaluate(()=>document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'е',code:'KeyT',bubbles:true})));
     assert.equal(await page.locator('[data-map-tool="target"]').getAttribute('aria-pressed'),'true','Hotkeys use physical keys on the Russian layout');
     await page.locator('#compact-toggle').click();assert.equal(await page.locator('body.compact-map').count(),1);
-    await page.locator('#compact-toggle').click();assert.equal(await page.locator('body.compact-map').count(),0);
+    // "Full view" gives the window its size back (main resizes it after the click); a narrow window stays compact until then.
+    await page.locator('#compact-toggle').click();await page.waitForFunction(()=>!document.body.classList.contains('compact-map'),null,{timeout:3000});
     await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(480,820));await page.waitForFunction(()=>document.body.classList.contains('compact-map'));
     assert.equal(await page.locator('#compact-toggle').isDisabled(),true);
     const layout=await page.evaluate(()=>{const map=document.getElementById('terrain-frame').getBoundingClientRect(),cards=[...document.querySelectorAll('.target-row')].map(e=>{const r=e.getBoundingClientRect();return {top:r.top,left:r.left};});return {bottom:map.bottom,cards,overflow:document.documentElement.scrollWidth>document.documentElement.clientWidth};});
     assert.ok(layout.cards[0].top>=layout.bottom);assert.ok(layout.cards[1].top>layout.cards[0].top);assert.ok(layout.cards[1].top-layout.cards[0].top<65);assert.equal(layout.overflow,false);
     await page.screenshot({path:path.join(root,'.test-output','compact-map.png')});
     await page.locator('[data-map-tool="target"]').click();
-    for(let id=4;id<=10;id++)await place('x'+(30+id*5)+', y80');
+    // Two targets so far (numbers are kept 1…n): eight more make a two-digit pin.
+    for(let id=3;id<=10;id++)await place('x'+(30+id*5)+', y80');
     assert.equal(await page.locator('[data-marker="Цель 10"] text').textContent(),'10');
     const glyphSize=await page.locator('[data-marker="Цель 10"] text').evaluate(e=>parseFloat(getComputedStyle(e).fontSize)*e.getScreenCTM().a);
     assert.ok(Math.abs(glyphSize-11)<0.1,'Digit font stays 11 screen pixels');

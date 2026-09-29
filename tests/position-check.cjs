@@ -2,7 +2,9 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const {_electron}=require('./playwright.cjs');
-const {resolvePosition}=require('../desktop/window-position.cjs');
+// Main's window placement, bundled from src/ (the app itself runs desktop/, built by `pnpm build`).
+require('node:child_process').execFileSync(process.execPath,[path.join(__dirname,'..','scripts','build-test-core.mjs')],{stdio:'inherit'});
+const {resolvePosition}=require('../.test-output/app.cjs');
 (async()=>{
   const root=path.resolve(__dirname,'..');
   fs.mkdirSync(path.join(root,'.test-output'),{recursive:true});

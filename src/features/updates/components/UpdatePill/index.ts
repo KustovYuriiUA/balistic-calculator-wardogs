@@ -1,0 +1,1 @@
+export { UpdatePill } from './UpdatePill'

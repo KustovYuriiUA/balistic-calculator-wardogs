@@ -48,11 +48,13 @@ jobs:
           version: 11
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
       - run: pnpm install --frozen-lockfile
       - run: node node_modules/electron/install.js
+      - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm test
-      - run: node scripts/release.cjs
+      - run: pnpm release
       - name: Publish release
         shell: bash
         run: |

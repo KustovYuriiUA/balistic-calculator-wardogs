@@ -1,9 +1,10 @@
 'use strict';
-// Real screenshot check of the game-map layer core (run with Electron: it decodes WebP).
+// Real screenshot check of the game-map layer core (run with Electron: it decodes WebP). `pnpm check:zone` bundles the
+// core from src/ first (scripts/build-test-core.mjs → .test-output/core.cjs).
 // The first fixture is North America, zone Zestafona: game grid lines x=70 at column 537 and y=100 at row 760.
 const {app,BrowserWindow}=require('electron');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
-const Z=require('../dist/zone-detect.js'),{ZONE_PATCHES}=require('../dist/zone-patches.js');
+const Z=require('../.test-output/core.cjs'),{ZONE_PATCHES,MAP_LANDMARKS}=Z;
 const root=path.resolve(__dirname,'..');
 app.setPath('userData',path.join(root,'.test-output','zone-check-profile'));
 
@@ -21,7 +22,6 @@ function throughI420({width:w,height:h,data}){
 }
 const crop=(img,x0,y0,w,h)=>{const data=new Uint8ClampedArray(w*h*4);for(let y=0;y<h;y++)data.set(img.data.subarray(((y0+y)*img.width+x0)*4,((y0+y)*img.width+x0+w)*4),y*w*4);return {width:w,height:h,data};};
 const patches=Object.fromEntries(Object.entries(ZONE_PATCHES.patches).map(([k,v])=>[k,Z.decodePatch(v)]));
-const MAP_LANDMARKS=new Function(fs.readFileSync(path.join(root,'dist','landmarks-data.js'),'utf8')+';return MAP_LANDMARKS;')();
 const zone=MAP_LANDMARKS.northamerica.zones.find(z=>z.id==='zestafona-default');
 // Ground truth for the scale: the game's axis labels are 1 unit (100 m) apart. Their period along a strip outside the
 // panel (brightness autocorrelation, refined over several periods) gives px per unit independently of the rim.
@@ -50,14 +50,14 @@ app.whenReady().then(async()=>{
     const ring=Z.detectRing(img);assert.ok(ring,label+': rim found');
     report.push(`${label}: rim ${Z.ringPoints(img).length/2} px, centre ${(ring.cx+area.x).toFixed(2)}, ${(ring.cy+area.y).toFixed(2)}, r ${ring.r.toFixed(2)}, rms ${ring.rms.toFixed(2)}, coverage ${ring.coverage.toFixed(2)}`);
     assert.ok(Math.abs(ring.cx+area.x-586)<1&&Math.abs(ring.cy+area.y-530)<1&&Math.abs(ring.r-RIM_NA)<1.5,label+': rim geometry');
-    assert.equal(ring.weak,false);
+    assert.equal(ring.isWeak,false);
     const t=Z.ringTransform(ring,zone);
     const gx=Z.pixelToWorld(t,537.5-area.x,0).x,gy=Z.pixelToWorld(t,0,760.5-area.y).y;// centres of the 1 px grid lines
     report.push(`${label}: grid x=70 → ${gx.toFixed(3)}, y=100 → ${gy.toFixed(3)} (1 px = ${(100/t.scale).toFixed(2)} m)`);
     assert.ok(Math.abs(gx-70)<.02&&Math.abs(gy-100)<.02,label+': game grid lines within 2 m');
     const found=Z.recogniseZone(Z.discSample(img,ring,ZONE_PATCHES.size),patches);
     report.push(`${label}: zone ${found.key} score ${found.score.toFixed(3)} lead ${found.margin.toFixed(3)}`);
-    assert.equal(found.key,'northamerica/zestafona-default');assert.equal(found.confident,true);
+    assert.equal(found.key,'northamerica/zestafona-default');assert.equal(found.isConfident,true);
   }
   // The rim's scale against the labels: bottom row, left column and the 100M column on the right.
   const naLabels=[labelPeriod(shot,[180,998,860,26],true),labelPeriod(shot,[112,110,50,860],false),labelPeriod(shot,[1055,110,70,860],false)];
@@ -67,9 +67,9 @@ app.whenReady().then(async()=>{
   // Zoomed in / panned: only the north-west quarter of the circle is on screen.
   const part=crop(shot,180,110,420,420),arc=Z.detectRing(part);
   assert.ok(arc,'rim found on a quarter arc');
-  report.push(`quarter arc: centre ${(arc.cx+180).toFixed(2)}, ${(arc.cy+110).toFixed(2)}, r ${arc.r.toFixed(2)}, coverage ${arc.coverage.toFixed(2)}, weak ${arc.weak}`);
+  report.push(`quarter arc: centre ${(arc.cx+180).toFixed(2)}, ${(arc.cy+110).toFixed(2)}, r ${arc.r.toFixed(2)}, coverage ${arc.coverage.toFixed(2)}, weak ${arc.isWeak}`);
   assert.ok(Math.abs(arc.cx+180-586)<3&&Math.abs(arc.cy+110-530)<3&&Math.abs(arc.r-RIM_NA)<4,'quarter arc geometry');
-  assert.equal(arc.weak,true);
+  assert.equal(arc.isWeak,true);
   // Map closed: the 3D world to the right of the panel has no rim.
   assert.equal(Z.detectRing(crop(shot,1052,100,198,900)),null,'no rim on the game world');
 
@@ -88,7 +88,7 @@ app.whenReady().then(async()=>{
     const found=Z.recogniseZone(Z.discSample(img,ring,ZONE_PATCHES.size),patches);
     report.push(`${label}: r ${ring.r.toFixed(2)} (= ${(ring.r/f).toFixed(2)} on the screenshot), rms ${ring.rms.toFixed(2)}, hue ${ring.hue}, grid x=100 → ${gx.toFixed(3)}, y=60 → ${gy.toFixed(3)}, zone ${found?.key} score ${found?.score.toFixed(3)} lead ${found?.margin.toFixed(3)}`);
     assert.ok(Math.abs(gx-100)<.035&&Math.abs(gy-60)<.035,label+': grid lines within 3.5 m (1 screenshot px)');
-    assert.equal(found?.key,'europe/ozeti-river');assert.equal(found.confident,true);
+    assert.equal(found?.key,'europe/ozeti-river');assert.equal(found.isConfident,true);
   }
   // Europe's scale against the 100M column on the right (the bottom labels alternate in width and read double).
   const euLabel=labelPeriod(eu,[1175,100,30,360],false),euScale=Z.detectRing(small).r/5.5;
@@ -102,7 +102,7 @@ app.whenReady().then(async()=>{
   }
   assert.equal(Z.findMapPanel(crop(shot,190,120,840,840)),null,'an area inside the panel has no panel');
   // Open or closed from the fitted area's edges: the frame on the panel, not on rects inside the map or in the world.
-  const edgeShares=rect=>Z.edgeStrips(rect,8).map(s=>Z.lineShare(crop(shot,s.x,s.y,s.width,s.height),s.vertical));
+  const edgeShares=rect=>Z.edgeStrips(rect,8).map(s=>Z.lineShare(crop(shot,s.x,s.y,s.width,s.height),s.isVertical));
   const onPanel=edgeShares({x:172,y:97,width:876,height:878});
   report.push(`map frame on the panel: ${onPanel.map(v=>v.toFixed(2)).join(' ')}`);
   assert.ok(Z.panelOpen(onPanel)&&onPanel.every(v=>v>=.9),'the open map shows its frame on every side');

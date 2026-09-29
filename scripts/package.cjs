@@ -10,7 +10,8 @@ fs.mkdirSync(output,{recursive:true});
 fs.cpSync(electron,output,{recursive:true});
 const appDir=path.join(output,'resources','app');
 fs.mkdirSync(appDir,{recursive:true});
-for(const folder of ['desktop','dist'])fs.cpSync(path.join(root,folder),path.join(appDir,folder),{recursive:true});
+// The build output (pnpm build) without source maps.
+for(const folder of ['desktop','dist'])fs.cpSync(path.join(root,folder),path.join(appDir,folder),{recursive:true,filter:file=>!file.endsWith('.map')});
 const source=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
 fs.writeFileSync(path.join(appDir,'package.json'),JSON.stringify({name:source.name,version:source.version,main:source.main},null,2));
 fs.copyFileSync(path.join(root,'README.ru.md'),path.join(output,'ПРОЧТИ МЕНЯ.txt'));

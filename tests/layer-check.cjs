@@ -9,8 +9,8 @@
 // workers.
 const {app,BrowserWindow,screen}=require('electron');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
-const root=path.resolve(__dirname,'..'),data=fs.mkdtempSync(path.join(root,'.test-output','layer-'));
-fs.mkdirSync(data,{recursive:true});
+const root=path.resolve(__dirname,'..');fs.mkdirSync(path.join(root,'.test-output'),{recursive:true});
+const data=fs.mkdtempSync(path.join(root,'.test-output','layer-'));
 app.setPath('userData',data);
 fs.writeFileSync(path.join(data,'settings.json'),JSON.stringify({language:'ru'}));// the texts below are Russian
 // Do not take Insert from a running copy of the app; keep the handler to press it from the test.
@@ -53,7 +53,9 @@ app.whenReady().then(async()=>{
   assert.equal(await read(overlay,'document.getElementById("terrain-select").value'),'northamerica','overlay switched to the recognised map');
   assert.equal(await read(overlay,'document.getElementById("zone-select").value'),'zestafona-default');
   // «Зона»: the overlay's own map shows the zone circle with a margin (500 m radius → 2.6 × 30.5 of 1000 units).
-  const zoneView=await read(overlay,'document.getElementById("fit-zone").click();document.getElementById("terrain").getAttribute("viewBox").split(" ").map(Number)');
+  // React renders the click's view after the script that clicked: read it in the next one.
+  await read(overlay,'document.getElementById("fit-zone").click();true');
+  const zoneView=await read(overlay,'document.getElementById("terrain").getAttribute("viewBox").split(" ").map(Number)');
   assert.ok(Math.abs(zoneView[2]-2.6*500/16384*1000)<1,'zone fills the map: '+zoneView);
 
   // The loose area (40 px of 3D world around the panel) is fitted to the panel once the map is calibrated.
@@ -140,7 +142,9 @@ app.whenReady().then(async()=>{
   const {clipboard}=require('electron'),userClipboard=await clipboard.readText();
   try{
     await clipboard.writeText('x71.50, y102.25');
-    await read(overlay,'document.querySelector(\'[data-map-tool="player"]\').click();document.getElementById("map-coordinate").value="";document.getElementById("place-coordinate").click();true');
+    // The field is emptied as by typing (the native setter and an input event), so React's state follows.
+    await read(overlay,'document.querySelector(\'[data-map-tool="player"]\').click();{const f=document.getElementById("map-coordinate");Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(f,"");f.dispatchEvent(new Event("input",{bubbles:true}));}true');
+    await read(overlay,'document.getElementById("place-coordinate").click();true');
     await wait('position from the clipboard',async()=>{const c=await coords('document.getElementById("map-player-label")');return c&&Math.hypot(c[0]-71.5,c[1]-102.25)<.01;});
   }finally{await clipboard.writeText(userClipboard);}
   assert.equal(await mode(),'edit','pasting needs no keyboard');

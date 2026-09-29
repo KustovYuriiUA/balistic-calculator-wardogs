@@ -6,3 +6,7 @@ release/
 .test-output/
 backup/
 .openai/
+
+# Build output (pnpm build): esbuild into desktop/, Vite into dist/.
+desktop/
+dist/

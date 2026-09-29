@@ -1,12 +1,13 @@
 'use strict';
 // Terrain matching on the real screenshot and on frames rendered from the offline map (run with Electron: WebP).
+// `pnpm check:terrain` bundles the core from src/ first (scripts/build-test-core.mjs → .test-output/core.cjs).
 // Ground truth for the screenshot is the zone-rim calibration, which the terrain search never sees.
 const {app,BrowserWindow}=require('electron');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
-const Z=require('../dist/zone-detect.js'),T=require('../dist/terrain-match.js');
+// Z and T: the zone and the terrain halves of the same core.
+const Z=require('../.test-output/core.cjs'),T=Z,{MAP_LANDMARKS}=Z;
 const root=path.resolve(__dirname,'..');
 app.setPath('userData',path.join(root,'.test-output','terrain-check-profile'));
-const MAP_LANDMARKS=new Function(fs.readFileSync(path.join(root,'dist','landmarks-data.js'),'utf8')+';return MAP_LANDMARKS;')();
 const crop=(img,x0,y0,w,h)=>{const data=new Uint8ClampedArray(w*h*4);for(let y=0;y<h;y++)data.set(img.data.subarray(((y0+y)*img.width+x0)*4,((y0+y)*img.width+x0+w)*4),y*w*4);return {width:w,height:h,data};};
 const ms=t=>(performance.now()-t).toFixed(0)+' ms';
 // Error of a fix against the truth: metres at the capture centre and scale in per cent.
@@ -17,7 +18,7 @@ app.whenReady().then(async()=>{
   const win=new BrowserWindow({show:false});await win.loadURL('about:blank');
   const decode=(file,size)=>win.webContents.executeJavaScript(`new Promise((resolve,reject)=>{const i=new Image();i.onerror=reject;i.onload=()=>{const w=${size||'i.width'},h=${size||'i.height'},c=new OffscreenCanvas(w,h),g=c.getContext('2d');g.imageSmoothingQuality='high';g.drawImage(i,0,0,w,h);resolve({width:w,height:h,data:g.getImageData(0,0,w,h).data});};i.src=${JSON.stringify('data:image/webp;base64,'+fs.readFileSync(file).toString('base64'))};})`).then(r=>({width:r.width,height:r.height,data:new Uint8ClampedArray(r.data)}));
   let t=performance.now();
-  const pyramids={};for(const world of Object.keys(MAP_LANDMARKS))pyramids[world]=T.mapPyramid(T.lumaOf(await decode(path.join(root,'dist','maps',world+'.webp'),2048)));
+  const pyramids={};for(const world of Object.keys(MAP_LANDMARKS))pyramids[world]=T.mapPyramid(T.lumaOf(await decode(path.join(root,'public','maps',world+'.webp'),2048)));
   console.log('pyramids of 3 maps:',ms(t));
   const shot=await decode(path.join(__dirname,'fixtures','zone-northamerica.webp'));
   const area=crop(shot,172,97,876,878),cap=T.captureOf(area);
@@ -26,9 +27,9 @@ app.whenReady().then(async()=>{
   console.log(`truth from the rim: s ${truth.s.toFixed(3)} m/px, corner x${truth.x0.toFixed(2)} y${truth.y0.toFixed(2)}`);
 
   const results={};
-  for(const world of Object.keys(pyramids)){t=performance.now();const f=T.acquireFix(pyramids[world],cap);results[world]=f;console.log(`acquire on ${world}: ${ms(t)}, score ${f?.score.toFixed(3)} lead ${f?.lead.toFixed(3)} confident ${f?.confident}`+(world==='northamerica'&&f?` → ${fmt(error(f,truth,cap))}`:''));}
+  for(const world of Object.keys(pyramids)){t=performance.now();const f=T.acquireFix(pyramids[world],cap);results[world]=f;console.log(`acquire on ${world}: ${ms(t)}, score ${f?.score.toFixed(3)} lead ${f?.lead.toFixed(3)} confident ${f?.isConfident}`+(world==='northamerica'&&f?` → ${fmt(error(f,truth,cap))}`:''));}
   const na=results.northamerica;
-  assert.ok(na?.confident,'confident on North America');
+  assert.ok(na?.isConfident,'confident on North America');
   for(const w of ['kavkazi','europe'])assert.ok(!results[w]||results[w].score<na.score-.1,'other maps score clearly lower');
   const e=error(na,truth,cap);assert.ok(e.metres<8&&Math.abs(e.scale)<1.5,'acquired within 8 m and 1.5 %: '+fmt(e));
 
@@ -60,24 +61,24 @@ app.whenReady().then(async()=>{
   const eu=await decode(path.join(__dirname,'fixtures','zone-europe.webp')),k=eu.width/5120;
   const euImg=crop(eu,Math.round(2031*k),Math.round(216*k),Math.round(1076*k),Math.round(987*k)),euCap=T.captureOf(euImg);
   const euRing=Z.detectRing(euImg),euT=Z.ringTransform(euRing,MAP_LANDMARKS.europe.zones.find(z=>z.id==='ozeti-river')),euCorner=Z.pixelToWorld(euT,0,0),euTruth={x0:euCorner.x,y0:euCorner.y,s:100/euT.scale};
-  const euFound={};for(const world of Object.keys(pyramids)){t=performance.now();euFound[world]=T.acquireFix(pyramids[world],euCap,{step:1.12});console.log(`europe screenshot on ${world}: ${ms(t)}, score ${euFound[world]?.score.toFixed(3)} lead ${euFound[world]?.lead.toFixed(3)} confident ${euFound[world]?.confident}`+(world==='europe'&&euFound[world]?` → ${fmt(error(euFound[world],euTruth,euCap))}`:''));}
-  assert.ok(euFound.europe?.confident&&error(euFound.europe,euTruth,euCap).metres<15,'Europe found by terrain within 15 m');
-  for(const w of ['kavkazi','northamerica'])assert.ok(!euFound[w]?.confident,'no confident match on '+w);
+  const euFound={};for(const world of Object.keys(pyramids)){t=performance.now();euFound[world]=T.acquireFix(pyramids[world],euCap,{step:1.12});console.log(`europe screenshot on ${world}: ${ms(t)}, score ${euFound[world]?.score.toFixed(3)} lead ${euFound[world]?.lead.toFixed(3)} confident ${euFound[world]?.isConfident}`+(world==='europe'&&euFound[world]?` → ${fmt(error(euFound[world],euTruth,euCap))}`:''));}
+  assert.ok(euFound.europe?.isConfident&&error(euFound.europe,euTruth,euCap).metres<15,'Europe found by terrain within 15 m');
+  for(const w of ['kavkazi','northamerica'])assert.ok(!euFound[w]?.isConfident,'no confident match on '+w);
 
   t=performance.now();const quick=T.acquireFix(pyramids.northamerica,cap,{step:1.12});
   console.log(`acquire with 12 % scale steps: ${ms(t)}, score ${quick?.score.toFixed(3)} lead ${quick?.lead.toFixed(3)} → ${quick&&fmt(error(quick,truth,cap))}`);
 
   // Zoomed out: frames rendered from the offline map itself, grey, low contrast, with a tinted disc and noise.
-  const world=await decode(path.join(root,'dist','maps','northamerica.webp'));const worldI=T.integralOf(T.lumaOf(world));
+  const world=await decode(path.join(root,'public','maps','northamerica.webp'));const worldI=T.integralOf(T.lumaOf(world));
   for(const s of [4,12]){
-    const cx=70.6,cy=103.0,w=876,h=878,x0=cx-w/2*s/100,y0=cy+h/2*s/100,k=world.width/T.TERRAIN_UNITS;
-    const lum=T.resampleBox(worldI,x0*k,(T.TERRAIN_UNITS-y0)*k,(x0+w*s/100)*k,(T.TERRAIN_UNITS-y0+h*s/100)*k,w,h);
+    const cx=70.6,cy=103.0,w=876,h=878,x0=cx-w/2*s/100,y0=cy+h/2*s/100,k=world.width/T.MAP_EXTENT;
+    const lum=T.resampleBox(worldI,x0*k,(T.MAP_EXTENT-y0)*k,(x0+w*s/100)*k,(T.MAP_EXTENT-y0+h*s/100)*k,w,h);
     const rgba=new Uint8ClampedArray(w*h*4);let seed=3;const noise=()=>{seed=(seed*16807)%2147483647;return seed/2147483647-.5;};
     for(let i=0;i<w*h;i++){const px=i%w-w/2,py=Math.floor(i/w)-h/2,inDisc=Math.hypot(px,py)<500/s,g=.6*lum.data[i]+30+noise()*16;rgba.set(inDisc?[g*.8,g*.8+30,g*.8+10,255]:[g,g,g,255],i*4);}
     const synthetic=T.captureOf({width:w,height:h,data:rgba}),truthS={x0,y0,s};
     t=performance.now();const f=T.acquireFix(pyramids.northamerica,synthetic);
     console.log(`synthetic ${s} m/px: ${ms(t)}, score ${f?.score.toFixed(3)} lead ${f?.lead.toFixed(3)} → ${f&&fmt(error(f,truthS,synthetic))}`);
-    assert.ok(f?.confident&&error(f,truthS,synthetic).metres<s*6,'synthetic zoom-out acquired');
+    assert.ok(f?.isConfident&&error(f,truthS,synthetic).metres<s*6,'synthetic zoom-out acquired');
   }
   console.log('PASS');
   app.quit();

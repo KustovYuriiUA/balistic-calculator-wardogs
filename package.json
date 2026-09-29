@@ -6,14 +6,47 @@
   "main": "desktop/boot.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/*.test.cjs",
-    "package": "node scripts/package.cjs",
-    "package:portable": "node scripts/portable.cjs",
-    "release": "node scripts/release.cjs",
+    "build": "pnpm build:main && pnpm build:web",
+    "build:main": "node scripts/build-main.mjs",
+    "build:web": "vite build",
+    "dev": "pnpm build && electron .",
+    "typecheck": "tsc -b",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:zone": "node scripts/build-test-core.mjs && electron tests/zone-check.cjs",
+    "check:terrain": "node scripts/build-test-core.mjs && electron tests/terrain-check.cjs",
+    "check:sweep": "node scripts/build-test-core.mjs && electron tests/sweep-check.cjs",
+    "check:pages": "pnpm build && electron tests/pages-check.cjs",
+    "package": "pnpm build && node scripts/package.cjs",
+    "package:portable": "pnpm build && node scripts/portable.cjs",
+    "release": "pnpm build && node scripts/release.cjs",
     "zone-patches": "electron scripts/zone-patches.cjs"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
     "electron": "44.3.0",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.15.3",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "playwright": "^1.63.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.70.1",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zustand": "^5.0.15"
   }
 }

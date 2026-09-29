@@ -110,14 +110,22 @@ Tray menu: **Check for updates** checks now; **Update automatically** turns back
 
 ## Build from source
 
-Requires Node.js and pnpm.
+Requires Node.js 24 and pnpm 11. TypeScript and React; Vite builds the pages, esbuild the main process.
 
 ```bash
 pnpm install
 ```
 
 ```bash
-pnpm start
+pnpm dev
+```
+
+```bash
+pnpm typecheck
+```
+
+```bash
+pnpm lint
 ```
 
 ```bash
@@ -128,23 +136,40 @@ pnpm test
 pnpm package
 ```
 
-`pnpm package` builds a portable folder in `release/`. `pnpm release` builds everything a GitHub release needs: `release/balistic-calculator-wardogs-win-x64.zip`, `release/app-<version>.zip` and `release/update.json`. `node scripts/portable.cjs --maps` builds a single portable EXE with electron-builder. The UI checks in `tests/*-check.cjs` drive the app through Playwright's Electron support. Install `playwright`, or set `PLAYWRIGHT_PATH` to an existing copy, then run a check with `node tests/maps-check.cjs`. Five checks of the game map layer need only Electron: `pnpm exec electron tests/zone-check.cjs` runs the circle search and zone recognition on a real screenshot, `pnpm exec electron tests/terrain-check.cjs` the terrain matching (acquire, track, recover, zoom) on it and on frames rendered from the offline maps, `pnpm exec electron tests/layer-check.cjs` runs the whole layer on your screen against a stand-in game window (100 % display scaling), `pnpm exec electron tests/soak-check.cjs` samples the memory of every process for 2.5 minutes of rim tracking, terrain tracking and waiting (`SHOT_TEST_NO_GPU=1` repeats it without GPU acceleration), and `pnpm exec electron tests/sweep-check.cjs` checks recognition on two real snapshots of the game map (zoomed in and zoomed out) and on every zone of every map rendered at 1.2–12 m/px with green and red rims, off screen. After changing the maps or `landmarks-data.js`, rebuild the zone patches and the 1024² grey terrain images for the wide search (`dist/zone-patches.js`, `dist/maps/terrain-*.png`) with `pnpm zone-patches`.
+`pnpm dev` builds and starts the app (`pnpm start` starts the last build). `pnpm build` writes the main process and preloads to `desktop/` and the pages to `dist/`; both are build output, not in git. `pnpm test` runs the unit tests in `tests/unit` (Vitest). `pnpm package` builds a portable folder in `release/`. `pnpm release` builds everything a GitHub release needs: `release/balistic-calculator-wardogs-win-x64.zip`, `release/app-<version>.zip` and `release/update.json`. `node scripts/portable.cjs --maps` builds a single portable EXE with electron-builder.
 
-Project layout: `desktop/` holds the Electron main process (`boot.cjs` entry that picks the downloaded update or the bundled app, window, Insert hotkey, tray, `updater.cjs`, and `map-layer.cjs` with `map-area.cjs` for the game map layer and area picker). `dist/` holds the UI: `index.html`, `i18n.js` (all interface text, English and Russian, shared with the main process), `app.js` (calculator), `maps.js` (map, targets, presets), `style.css`/`maps.css` and the map images. The layer lives in `layer.html`/`layer.js`, the picker in `area-picker.html`/`area-picker.js`, the circle search and zone recognition in `zone-detect.js`, the terrain matching in `terrain-match.js` (the wide search runs in `terrain-worker.js`, one worker per map), and the generated zone patches in `zone-patches.js`.
+Checks with Electron (`tests/*-check.cjs`; run `pnpm build` first for the ones that start the app). `pnpm check:pages` builds and loads every page off screen: no errors, the overlay renders, the search worker starts. The UI checks drive the app through Playwright's Electron support: install `playwright`, or set `PLAYWRIGHT_PATH` to an existing copy, then run a check with `node tests/maps-check.cjs`. The game map layer's checks:
+
+- `pnpm check:zone`: the circle search and zone recognition on a real screenshot;
+- `pnpm check:terrain`: terrain matching (acquire, track, recover, zoom) on it and on frames rendered from the offline maps;
+- `pnpm check:sweep`: recognition on two real snapshots of the game map (zoomed in and out) and on every zone of every map rendered at 1.2–12 m/px with green and red rims;
+- `pnpm exec electron tests/layer-check.cjs`: the whole layer on your screen against a stand-in game window (100 % display scaling);
+- `pnpm exec electron tests/soak-check.cjs`: the memory of every process over 2.5 minutes of rim tracking, terrain tracking and waiting (`SHOT_TEST_NO_GPU=1` repeats it without GPU acceleration).
+
+The first three bundle the recognition code from `src/` (`scripts/build-test-core.mjs`) and run off screen; `layer-check` and `soak-check` put windows on the screen. After changing the maps or `src/data/landmarks.json`, rebuild the zone patches and the 1024² grey terrain images for the wide search (`src/data/generated/zone-patches.ts`, `public/maps/terrain-*.png`) with `pnpm zone-patches`.
+
+Project layout (details in `CLAUDE.md`):
+
+- `src/main`: the main process (`boot.ts` picks the downloaded update or the bundled app; windows, Insert hotkey, tray, settings); `src/preload`: one preload per window kind.
+- `src/pages`: the three windows' HTML and entry code. The overlay window is a React app; the layer over the game map and the area picker are plain TypeScript.
+- `src/features`: `fire-plan` (offline map, targets, presets, fire solution, manual calculator), `game-map` (layer, picker, circle and terrain recognition in `core/`, the wide search in a worker), `window` (title bar, menu, tabs), `updates` (the updater).
+- `src/shared`: IPC contract, interface text in English and Russian (`i18n`), geometry and formatting; `src/store`: window-wide state; `src/data`: bases and zones, generated zone patches.
+- `public/maps`: the map images.
 
 ## Release flow
 
 Branches: `dev` for work in progress, `master` for released code.
 
-1. Work on `dev` and push. The **CI** workflow runs the unit tests on every push to `dev` and on pull requests.
+1. Work on `dev` and push. The **CI** workflow runs the type check, lint, unit tests and build on every push to `dev` and on pull requests.
 2. When ready to ship, bump `"version"` in `package.json` on `dev` (for example `1.0.1`). The updater only offers versions greater than the installed one.
 3. Merge `dev` into `master` (pull request or fast-forward) and push.
-4. The **Release** workflow builds on `windows-latest`: it installs dependencies, runs the tests, runs `pnpm release` and publishes the release `v<version>` with the three files. If a release with that version already exists, the workflow skips publishing, so pushes to `master` without a version bump are safe.
+4. The **Release** workflow builds on `windows-latest`: it installs dependencies, runs the type check, lint and tests, runs `pnpm release` and publishes the release `v<version>` with the three files. If a release with that version already exists, the workflow skips publishing, so pushes to `master` without a version bump are safe.
 5. Installed overlays pick the release up within 6 hours, or immediately via **Check for updates** in the tray.
 
-`node tests/update-check.cjs` exercises the whole update path against a local fake of the GitHub API: download, checksum, staging, restart into the new version, rejected tampered files.
+`pnpm build`, then `node tests/update-check.cjs` exercises the whole update path against a local fake of the GitHub API: download, checksum, staging, restart into the new version, rejected tampered files.
+
 ## Credits and license
 
-- Map images and base/zone coordinates come from the public [Wardogs Zone artillery calculator](https://wardogs.zone/calculators/artillery); see [dist/maps/SOURCES.md](dist/maps/SOURCES.md). Game graphics belong to their owners.
+- Map images and base/zone coordinates come from the public [Wardogs Zone artillery calculator](https://wardogs.zone/calculators/artillery); see [public/maps/SOURCES.md](public/maps/SOURCES.md). Game graphics belong to their owners.
 - WARDOGS is developed by Bulkhead and published by Team17. This project is not affiliated with or endorsed by them.
 - The code is released under the [MIT License](LICENSE). The license does not cover the map images and game data.
