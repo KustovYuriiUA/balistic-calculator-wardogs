@@ -165,9 +165,9 @@ Project layout (details in `CLAUDE.md`):
 Branches: `dev` for work in progress, `master` for released code.
 
 1. Work on `dev` and push. The **CI** workflow runs the type check, lint, unit tests and build on every push to `dev` and on pull requests.
-2. When ready to ship, bump `"version"` in `package.json` on `dev` (for example `1.0.1`). The updater only offers versions greater than the installed one.
+2. When ready to ship, bump `"version"` in `package.json` on `dev` (for example `1.0.1`). The updater only offers versions greater than the installed one. Write the announcement for the support Discord in `.github/news.md`; its first line must name the new version, or a short default notice is posted instead.
 3. Merge `dev` into `master` (pull request or fast-forward) and push.
-4. The **Release** workflow builds on `windows-latest`: it installs dependencies, runs the type check, lint and tests, runs `pnpm release` and publishes the release `v<version>` with the three files. If a release with that version already exists, the workflow skips publishing, so pushes to `master` without a version bump are safe.
+4. The **Release** workflow builds on `windows-latest`: it installs dependencies, runs the type check, lint and tests, runs `pnpm release` and publishes the release `v<version>` with the three files, then posts the announcement to #новости through the webhook in the `DISCORD_NEWS_WEBHOOK` secret (`node scripts/announce-release.cjs --dry-run` previews it). If a release with that version already exists, the workflow skips publishing, so pushes to `master` without a version bump are safe.
 5. Installed overlays pick the release up within 6 hours, or immediately via **Check for updates** in the tray.
 
 `pnpm build`, then `node tests/update-check.cjs` exercises the whole update path against a local fake of the GitHub API: download, checksum, staging, restart into the new version, rejected tampered files.

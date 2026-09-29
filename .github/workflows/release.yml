@@ -64,3 +64,8 @@ jobs:
             "release/update.json" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$VERSION" \
             --notes-file .github/release-notes.md --generate-notes
+      - name: Announce on Discord
+        shell: bash
+        env:
+          DISCORD_NEWS_WEBHOOK: ${{ secrets.DISCORD_NEWS_WEBHOOK }}
+        run: node scripts/announce-release.cjs
