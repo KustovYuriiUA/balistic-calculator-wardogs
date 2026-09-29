@@ -72,6 +72,10 @@ Remote content: none. Maps are bundled; the only network traffic is the updater 
   flag it. Never read or write the game's process.
 - `overlay.blur()` hands the foreground to the next topmost window, not to the game, and a window that
   lost the foreground cannot take it back — never rely on `blur()` to return focus.
+- `setFocusable()` on Windows also deactivates the window, with the same hand-over to the next window,
+  and right after a global hotkey the app has the right to move the foreground. Calling
+  `setFocusable(false)` on every mode change made Insert take the keyboard from the game (1.x did it;
+  `keyboard-check` showed it). Call it only when focusability really changes.
 - Always on top over a borderless game: `setAlwaysOnTop(true, 'screen-saver')` and `showInactive()`.
 - Moving and resizing a non-focusable frameless window: Windows' own title-bar drag
   (`-webkit-app-region: drag`) activates the desktop and the game loses focus; the page drives the

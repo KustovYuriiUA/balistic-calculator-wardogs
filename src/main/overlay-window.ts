@@ -91,6 +91,8 @@ export function createOverlayWindow({
 
   let isKeyboard = false
   let mode: OverlayMode | null = null
+  // A BrowserWindow is created focusable.
+  let isFocusable = true
 
   function reveal() {
     if (window.isDestroyed()) return
@@ -113,7 +115,14 @@ export function createOverlayWindow({
     window.setIgnoreMouseEvents(mode === 'view', {
       forward: true,
     })
-    window.setFocusable(mode === 'keyboard')
+    // On Windows setFocusable also deactivates the window, which hands the foreground to the next window below it,
+    // and right after a hotkey the app is allowed to. Called on every mode change, Insert took the keyboard from the
+    // game (seen with keyboard-check's stand-in). So only when focusability really changes.
+    const wantsFocus = mode === 'keyboard'
+    if (wantsFocus !== isFocusable) {
+      isFocusable = wantsFocus
+      window.setFocusable(wantsFocus)
+    }
     window.setOpacity(mode === 'view' ? .85 : 1)
     if (mode === 'keyboard') {
       reveal()
