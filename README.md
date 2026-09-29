@@ -28,7 +28,7 @@ Unofficial always-on-top Windows overlay for artillery and mortar fire in [WARDO
 - **Presets:** position and targets are saved separately for every map, region and zone, and restored after restart.
 - **A real overlay:** the window never takes the keyboard from the game, so the game keeps its sound and its keys, M included. It is click-through while you play and clickable while the game map is open or marker mode is on. Only a click into a text field gives it the keyboard; a click on the game takes it back.
 - **Undo** (Ctrl+Z) for every change of points. Hotkeys work on any keyboard layout.
-- **English or Russian:** English by default; the **EN / RU** select in the title bar (or **Language** in the tray menu) switches the whole app, the game map layer included, and the choice is remembered.
+- **English, Russian or Ukrainian:** English by default; the **EN / RU / UA** select in the title bar (or **Language** in the tray menu) switches the whole app, the game map layer included, and the choice is remembered.
 - **Compact layout:** **Compact** narrows the window to 420 px at the nearer screen edge, with the map on top and the solution and target list below. Its height follows the content, so viewing (less shown) is shorter than editing and there is no empty space; up to 10 targets show in full, more scroll. **Full view** restores the previous size, and the choice survives a restart. A window narrowed by hand switches to the compact layout by itself. In the manual calculator the result moves above the inputs.
 - **Manual calculator readout:** the azimuth sits in a highlighted cell with bigger digits and the range is in cream, so the two values never blend.
 - **Manual calculator** for entering pasted coordinates without the map.
@@ -157,7 +157,7 @@ Project layout (details in `CLAUDE.md`):
 - `src/main`: the main process (`boot.ts` picks the downloaded update or the bundled app; windows, Insert hotkey, tray, settings); `src/preload`: one preload per window kind.
 - `src/pages`: the three windows' HTML and entry code. The overlay window is a React app; the layer over the game map and the area picker are plain TypeScript.
 - `src/features`: `fire-plan` (offline map, targets, presets, fire solution, manual calculator), `game-map` (layer, picker, circle and terrain recognition in `core/`, the wide search in a worker), `window` (title bar, menu, tabs), `updates` (the updater).
-- `src/shared`: IPC contract, interface text in English and Russian (`i18n`), geometry and formatting; `src/store`: window-wide state; `src/data`: bases and zones, generated zone patches.
+- `src/shared`: IPC contract, interface text in English, Russian and Ukrainian (`i18n`), geometry and formatting; `src/store`: window-wide state; `src/data`: bases and zones, generated zone patches.
 - `public/maps`: the map images.
 
 ## Release flow

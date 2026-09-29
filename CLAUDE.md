@@ -77,9 +77,11 @@ over the in-game map. These rules resolve the project-specific questions of the 
 
 ## Text
 
-- Every user-visible string goes through `t()` from `@/shared/i18n`. English is the default, Russian is
-  complete: `ru` is typed `Record<keyof typeof en, string>`.
-- Russian users are the main audience of the Russian UI. Keep Russian texts natural, not literal.
+- Every user-visible string goes through `t()` from `@/shared/i18n`. English is the default; Russian and
+  Ukrainian are complete: `ru` and `uk` are typed `Record<TextKey, string>`, and `tests/unit/i18n.test.ts`
+  checks their keys, placeholders and markup against `en`. A new text needs all three.
+- Russian users are the main audience of the Russian UI. Keep Russian and Ukrainian texts natural, not
+  literal, and never make Ukrainian a calque of the Russian.
 
 ## Electron and native constraints
 

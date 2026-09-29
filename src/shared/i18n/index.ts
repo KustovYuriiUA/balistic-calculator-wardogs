@@ -1,7 +1,8 @@
 import { en } from './en'
 import { ru } from './ru'
+import { uk } from './uk'
 
-export type Language = 'en' | 'ru'
+export type Language = 'en' | 'ru' | 'uk'
 
 export type TextKey = keyof typeof en
 
@@ -11,6 +12,14 @@ export type TextVars = Record<string, string | number>
 export const LANGUAGES: Record<Language, string> = {
   en: 'English',
   ru: 'Русский',
+  uk: 'Українська',
+}
+
+/** Short codes for the window bar's select. Ukrainian shows UA: "UK" reads as the United Kingdom. */
+export const LANGUAGE_CODES: Record<Language, string> = {
+  en: 'EN',
+  ru: 'RU',
+  uk: 'UA',
 }
 
 export const LANGUAGE_IDS = Object.keys(LANGUAGES) as Language[]
@@ -18,13 +27,15 @@ export const LANGUAGE_IDS = Object.keys(LANGUAGES) as Language[]
 const dictionaries: Record<Language, Record<TextKey, string>> = {
   en,
   ru,
+  uk,
 }
 
 // One language per process: main decides and the pages take it from their preload before anything renders. A new
 // language reloads the overlay window, so nothing needs to re-render on a change.
 let current: Language = 'en'
 
-export const isLanguage = (value: unknown): value is Language => value === 'en' || value === 'ru'
+export const isLanguage = (value: unknown): value is Language =>
+  typeof value === 'string' && Object.hasOwn(LANGUAGES, value)
 
 /** Anything but a known language falls back to English. */
 export function setLanguage(next: unknown): Language {
@@ -40,11 +51,17 @@ export function t(key: TextKey, vars?: TextVars): string {
   return text.replace(/\{(\w+)\}/g, (match, name: string) => name in vars ? String(vars[name]) : match)
 }
 
-export const locale = () => current === 'ru' ? 'ru-RU' : 'en-US'
+const LOCALES: Record<Language, string> = {
+  en: 'en-US',
+  ru: 'ru-RU',
+  uk: 'uk-UA',
+}
+
+export const locale = () => LOCALES[current]
 
 export const formatNumber = (n: number, maximumFractionDigits = 2) =>
   new Intl.NumberFormat(locale(), {
     maximumFractionDigits,
   }).format(n)
 
-export const decimalSeparator = () => current === 'ru' ? ',' : '.'
+export const decimalSeparator = () => current === 'en' ? '.' : ','

@@ -1,5 +1,5 @@
 import {
-  LANGUAGES, LANGUAGE_IDS, getLanguage, isLanguage, t,
+  LANGUAGE_CODES, LANGUAGES, LANGUAGE_IDS, getLanguage, isLanguage, t,
 } from '@/shared/i18n'
 
 interface LanguageSelectProps {
@@ -32,7 +32,7 @@ export function LanguageSelect({ id }: LanguageSelectProps) {
     >
       {LANGUAGE_IDS.map((l) => (
         <option key={l} value={l} title={LANGUAGES[l]}>
-          {l.toUpperCase()}
+          {LANGUAGE_CODES[l]}
         </option>
       ))}
     </select>
