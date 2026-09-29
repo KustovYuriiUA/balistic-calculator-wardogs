@@ -116,8 +116,9 @@ Read `.claude/skills/electron-best-practices`. The non-negotiables:
 ## Process
 
 - Commit and push only when the user asks. Work on the branch the user named.
-- A release gets its Discord announcement from `.github/news.md` (Russian, first line names the version):
-  update it together with the version bump. The Release workflow posts it after publishing.
+- A release gets its Discord announcements from `.github/news.md` (Russian) and `.github/news.en.md`
+  (English); the first line of each names the version. Update both with the version bump. The Release
+  workflow posts them after publishing.
 - Comments: `code-comments`. Keep the WHY comments about Windows, capture and thresholds. They were
   measured, not guessed.
 - `node` is not on PATH on the author's machine by default. If it is missing, Electron's own Node works

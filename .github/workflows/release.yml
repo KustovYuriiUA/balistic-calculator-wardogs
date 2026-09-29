@@ -68,4 +68,5 @@ jobs:
         shell: bash
         env:
           DISCORD_NEWS_WEBHOOK: ${{ secrets.DISCORD_NEWS_WEBHOOK }}
+          DISCORD_NEWS_WEBHOOK_EN: ${{ secrets.DISCORD_NEWS_WEBHOOK_EN }}
         run: node scripts/announce-release.cjs
